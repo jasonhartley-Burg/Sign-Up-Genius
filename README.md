@@ -22,3 +22,7 @@ The API key is server-side only.
 
 ## v0.2.2 deployment note
 The Wrangler configuration includes the existing plaintext variables, preventing the remote-configuration warning seen during deployment. The Worker also initializes the D1 schema automatically so the GitHub → Cloudflare workflow does not require a separate CLI migration step.
+
+
+### v0.2.3 data correction
+This release calculates volunteer hours from SignUpGenius start/end times when the API does not provide an explicit hours field, and combines the filled and available reports so total required hours can include open slots.

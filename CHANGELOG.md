@@ -1,3 +1,9 @@
+## 0.2.3
+- Calculates slot hours from explicit duration fields or start/end times.
+- Imports both filled and available SignUpGenius report data.
+- Distinguishes open versus filled slots more reliably.
+- Keeps the existing GitHub → Cloudflare deployment workflow.
+
 # Changelog
 
 ## 0.2.1
