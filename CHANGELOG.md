@@ -25,3 +25,10 @@
 - D1 migration.
 - SignUpGenius synchronization foundation.
 - 15-minute scheduled sync.
+
+## 0.2.6 - 2026-08-07
+- Added a read-only SignUpGenius diagnostic inspector.
+- Added live inspection of all, available, and filled report endpoints for a selected event.
+- Added detected nested field-path inventory and complete raw JSON display.
+- Added D1 slot-accounting diagnostics (total, distinct IDs, zero-hour rows, and status counts).
+- No changes to Cloudflare bindings, API secret handling, synchronization schedule, or program attribution.

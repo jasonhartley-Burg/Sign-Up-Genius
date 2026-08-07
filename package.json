@@ -1,9 +1,26 @@
 {
-  "name":"volunteer-dashboard",
-  "version":"0.2.5",
-  "private":true,
-  "type":"module",
-  "scripts":{"dev":"vite","build":"vite build","deploy":"npm run build && wrangler deploy","typecheck":"tsc --noEmit","db:migrate:remote":"wrangler d1 migrations apply volunteer-dashboard --remote"},
-  "dependencies":{"react":"^19.1.1","react-dom":"^19.1.1"},
-  "devDependencies":{"@cloudflare/workers-types":"^4.20250813.0","@types/react":"^19.1.10","@types/react-dom":"^19.1.7","@vitejs/plugin-react":"^5.0.2","typescript":"^5.9.2","vite":"^7.1.3","wrangler":"^4.30.0"}
+  "name": "volunteer-dashboard",
+  "version": "0.2.6",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "deploy": "npm run build && wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:migrate:remote": "wrangler d1 migrations apply volunteer-dashboard --remote"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250813.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.2",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3",
+    "wrangler": "^4.30.0"
+  }
 }
