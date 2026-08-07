@@ -6,8 +6,7 @@ Cloudflare Worker + static dashboard + D1 foundation with SignUpGenius synchroni
 1. Replace the GitHub repository contents with this ZIP.
 2. Commit and push.
 3. Cloudflare should build with `npm install` and `npm run build`.
-4. Apply the D1 migration once with `npx wrangler d1 migrations apply volunteer-dashboard --remote`.
-5. Open the Worker and click **Sync SignUpGenius**.
+4. Open the Worker and click **Sync SignUpGenius**. The Worker creates the required D1 tables automatically on first request.
 
 ## Cloudflare settings
 Existing settings are expected:
@@ -19,3 +18,7 @@ Existing settings are expected:
 - Variable: `SYNC_INTERVAL_MINUTES=15`
 
 The API key is server-side only.
+
+
+## v0.2.2 deployment note
+The Wrangler configuration includes the existing plaintext variables, preventing the remote-configuration warning seen during deployment. The Worker also initializes the D1 schema automatically so the GitHub → Cloudflare workflow does not require a separate CLI migration step.

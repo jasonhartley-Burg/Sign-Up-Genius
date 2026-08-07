@@ -4,6 +4,8 @@
   "main":"worker/index.ts",
   "compatibility_date":"2026-08-07",
   "workers_dev":true,
+  "preview_urls": true,
+  "vars":{"APP_ENV":"production","APP_NAME":"Volunteer Dashboard","SIGNUPGENIUS_API_BASE":"https://api.signupgenius.com/v2/k/","SYNC_INTERVAL_MINUTES":"15"},
   "assets":{"directory":"./dist","binding":"ASSETS","not_found_handling":"single-page-application"},
   "d1_databases":[{"binding":"DB","database_name":"volunteer-dashboard","database_id":"9b366ca1-8c0e-48f6-82cf-257023f934be","migrations_dir":"migrations"}],
   "triggers":{"crons":["*/15 * * * *"]}
