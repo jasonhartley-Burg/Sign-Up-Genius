@@ -26,3 +26,7 @@ The Wrangler configuration includes the existing plaintext variables, preventing
 
 ### v0.2.3 data correction
 This release calculates volunteer hours from SignUpGenius start/end times when the API does not provide an explicit hours field, and combines the filled and available reports so total required hours can include open slots.
+
+
+### v0.2.4 data-sync fix
+Corrects the D1 `volunteer_slots` INSERT statement so the first live sync can write imported slots successfully.

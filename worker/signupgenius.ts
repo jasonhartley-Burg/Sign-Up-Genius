@@ -121,7 +121,7 @@ export async function sync(env:Env){
       await env.DB.prepare(`INSERT INTO volunteer_slots(
         event_id,signupgenius_slot_id,title,slot_date,start_time,end_time,hours,status,
         volunteer_name,volunteer_email,raw_json
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(signupgenius_slot_id) DO UPDATE SET
         event_id=excluded.event_id,title=excluded.title,slot_date=excluded.slot_date,
         start_time=excluded.start_time,end_time=excluded.end_time,hours=excluded.hours,

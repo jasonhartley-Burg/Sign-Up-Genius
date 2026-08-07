@@ -1,3 +1,6 @@
+## 0.2.4
+- Fixes the D1 volunteer slot INSERT placeholder count (11 columns / 11 values).
+
 ## 0.2.3
 - Calculates slot hours from explicit duration fields or start/end times.
 - Imports both filled and available SignUpGenius report data.
