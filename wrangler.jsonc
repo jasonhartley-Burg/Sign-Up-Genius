@@ -1,4 +1,10 @@
 {
-  "name":"volunteer-dashboard",
-  "compatibility_date":"2026-08-06"
+  "$schema":"node_modules/wrangler/config-schema.json",
+  "name":"sign-up-genius",
+  "main":"worker/index.ts",
+  "compatibility_date":"2026-08-07",
+  "workers_dev":true,
+  "assets":{"directory":"./dist","binding":"ASSETS","not_found_handling":"single-page-application"},
+  "d1_databases":[{"binding":"DB","database_name":"volunteer-dashboard","database_id":"9b366ca1-8c0e-48f6-82cf-257023f934be","migrations_dir":"migrations"}],
+  "triggers":{"crons":["*/15 * * * *"]}
 }
