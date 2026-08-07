@@ -30,3 +30,8 @@ This release calculates volunteer hours from SignUpGenius start/end times when t
 
 ### v0.2.4 data-sync fix
 Corrects the D1 `volunteer_slots` INSERT statement so the first live sync can write imported slots successfully.
+
+
+## v0.2.7 accounting
+
+Volunteer duration is calculated from the observed SignUpGenius `startdate` and `enddate` Unix timestamps. `myqty` is honored as position quantity. Rows without an end timestamp are Time TBD. The dashboard can optionally apply a planning estimate to TBD positions; the estimate is disabled by default.
