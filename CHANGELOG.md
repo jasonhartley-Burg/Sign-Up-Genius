@@ -1,3 +1,9 @@
+## 0.2.5
+- Makes SignUpGenius slot parsing tolerant of nested report structures and alternate field names.
+- Uses the available-slot report as the authoritative open/filled indicator when available.
+- Calculates slot hours from direct hour fields or start/end times across common API field variants.
+- Preserves volunteer name/email extraction for later family/program matching.
+
 ## 0.2.4
 - Fixes the D1 volunteer slot INSERT placeholder count (11 columns / 11 values).
 
