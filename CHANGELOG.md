@@ -1,14 +1,14 @@
 # Changelog
 
-## v0.2.7 — deterministic hours engine
+## v0.2.8
+- Added Program Contacts attribution engine.
+- Automatically normalizes A Guard, Elementary Fall Guard, Fall Guard, Marching Band, and World roster tabs from the configured Google Sheet.
+- Known Table is supplemental only and is not treated as a complete source of truth.
+- Added case-insensitive email matching from SignUpGenius volunteers to roster contacts.
+- Added program participation totals for unambiguous matches.
+- Added Multiple Programs and Unmatched review queues; ambiguous hours are not guessed.
+- Added contact-sync coverage KPIs and a manual Sync Contacts action.
+- Scheduled/Sync All refreshes both SignUpGenius and contact attribution.
 
-- Replaced guessed hour parsing with the observed SignUpGenius report fields.
-- Calculates duration from `startdate` and `enddate` Unix timestamps.
-- Treats rows without an end timestamp as **Time TBD**, not zero-hour work.
-- Uses `myqty` so multi-position open/filled rows are counted correctly.
-- Uses `itemmemberid` for filled signup row identity and `slotitemid` for open-row identity.
-- Detects volunteers from `firstname`, `lastname`, and `email`.
-- Adds optional, configurable planning estimates for untimed/TBA positions (default 6 hours, disabled by default).
-- Adds volunteer known-hour totals and separate TBD assignment counts.
-- Removes the v0.2.6 raw diagnostic inspector.
-- Leaves program attribution intentionally unassigned until the D1 family/program reference workflow is built.
+## v0.2.7
+- Correct SignUpGenius timestamp-based hour calculations and Time TBD handling.

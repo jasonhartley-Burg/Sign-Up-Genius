@@ -1,37 +1,24 @@
-# Volunteer Dashboard v0.2.1
+# Volunteer Dashboard v0.2.8
 
-Cloudflare Worker + static dashboard + D1 foundation with SignUpGenius synchronization.
+This build adds roster-based program attribution to the existing SignUpGenius hours engine.
+
+## Program Contacts source
+Default spreadsheet ID: `1bbRVZGY-gr6WFcgzayD8eQX22LuGGJIqWQqipF4PB90`
+
+Optional Worker variable: `PROGRAM_CONTACTS_SHEET_ID`
+
+The Worker reads these tabs as CSV: A Guard, Elementary Fall Guard, Fall Guard, Marching Band, World, and Known Table. The Google Sheet must be readable by the Worker (typically **Anyone with the link → Viewer**).
+
+Known Table is supplemental only. The app primarily normalizes the actual program roster tabs.
+
+## Attribution logic
+- Volunteer matching key: normalized lowercase email.
+- Exactly one roster program → attributed automatically.
+- More than one roster program → Multiple Programs / review required.
+- No roster email match → Unmatched / review required.
+- Ambiguous hours are excluded from program percentages rather than guessed.
 
 ## Deploy
-1. Replace the GitHub repository contents with this ZIP.
-2. Commit and push.
-3. Cloudflare should build with `npm install` and `npm run build`.
-4. Open the Worker and click **Sync SignUpGenius**. The Worker creates the required D1 tables automatically on first request.
+Existing D1 and SignUpGenius bindings/secrets are unchanged. `0003_attribution_engine.sql` is included, but the Worker also self-creates the new tables.
 
-## Cloudflare settings
-Existing settings are expected:
-- D1 binding: `DB` -> `volunteer-dashboard`
-- Secret: `SIGNUPGENIUS_API_KEY`
-- Variable: `SIGNUPGENIUS_API_BASE=https://api.signupgenius.com/v2/k/`
-- Variable: `APP_NAME=Volunteer Dashboard`
-- Variable: `APP_ENV=production`
-- Variable: `SYNC_INTERVAL_MINUTES=15`
-
-The API key is server-side only.
-
-
-## v0.2.2 deployment note
-The Wrangler configuration includes the existing plaintext variables, preventing the remote-configuration warning seen during deployment. The Worker also initializes the D1 schema automatically so the GitHub → Cloudflare workflow does not require a separate CLI migration step.
-
-
-### v0.2.3 data correction
-This release calculates volunteer hours from SignUpGenius start/end times when the API does not provide an explicit hours field, and combines the filled and available reports so total required hours can include open slots.
-
-
-### v0.2.4 data-sync fix
-Corrects the D1 `volunteer_slots` INSERT statement so the first live sync can write imported slots successfully.
-
-
-## v0.2.7 accounting
-
-Volunteer duration is calculated from the observed SignUpGenius `startdate` and `enddate` Unix timestamps. `myqty` is honored as position quantity. Rows without an end timestamp are Time TBD. The dashboard can optionally apply a planning estimate to TBD positions; the estimate is disabled by default.
+After deployment, click **Sync Contacts** (or **Sync All**) once and review Contact Match, Program Participation, and Needs Attribution Review.
