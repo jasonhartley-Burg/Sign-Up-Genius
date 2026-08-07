@@ -1,6 +1,6 @@
-# Volunteer Dashboard v0.2.0
+# Volunteer Dashboard v0.2.1
 
-Cloudflare Worker + React/Vite + D1 foundation with SignUpGenius synchronization.
+Cloudflare Worker + static dashboard + D1 foundation with SignUpGenius synchronization.
 
 ## Deploy
 1. Replace the GitHub repository contents with this ZIP.
