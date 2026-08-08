@@ -68,7 +68,7 @@ export default {
     const u=new URL(req.url);
     try {
       await ensureSchema(env);
-      if(u.pathname==="/api/health") return json({ok:true,version:"0.4.0",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true,manualOverrides:true,visualizations:true,scoreboard:true,eventAffiliations:true});
+      if(u.pathname==="/api/health") return json({ok:true,version:"0.4.1",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true,manualOverrides:true,visualizations:true,scoreboard:true,eventAffiliations:true});
       if(u.pathname==="/api/dashboard") {
         const startDate=u.searchParams.get("start")||undefined;
         const endDate=u.searchParams.get("end")||undefined;

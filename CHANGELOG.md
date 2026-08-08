@@ -1,3 +1,8 @@
+# v0.4.1
+
+- Fixed D1 parameter binding mismatch in date-filtered program scoreboard query.
+- Preserves v0.4.0 scoreboard, attribution, event affiliation, and date filtering behavior.
+
 # Changelog
 
 ## v0.4.0

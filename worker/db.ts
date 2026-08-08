@@ -90,7 +90,7 @@ export async function dashboard(env:Env, range:DashboardRange={}){
       COALESCE(su.unclassified_hours,0) unclassifiedHours
     FROM distinct_cm d JOIN counts ON counts.email=d.email LEFT JOIN vh ON vh.email=d.email
     LEFT JOIN eligible el ON el.program=d.program LEFT JOIN participation pa ON pa.program=d.program LEFT JOIN support su ON su.program=d.program
-    GROUP BY d.program ORDER BY knownHours DESC,name`,rf.binds).all<any>();
+    GROUP BY d.program ORDER BY knownHours DESC,name`,[...rf.binds,...rf.binds]).all<any>();
 
   const match=await stmt(env,`
     WITH ${EFFECTIVE_CTE}, cm AS (SELECT email,COUNT(DISTINCT program) pc FROM effective_cm GROUP BY email),

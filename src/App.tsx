@@ -40,7 +40,7 @@ export default function App(){
    <div className="brand"><img src="/boosters-logo.png" alt="Miamisburg Band and Guard Boosters logo"/><div><strong>Volunteer Impact</strong><span>Program Scoreboard</span></div></div>
    <nav><a href="#scoreboard" className="active">Scoreboard</a><a href="#standings">Standings</a><a href="#events">Events</a><a href="#volunteers">Volunteer Detail</a><a href="#admin">Admin</a></nav>
    <div className="sideCallout"><span>ONE BOOSTER.</span><strong>Every hour helps every program.</strong><small>Celebrate the groups stepping up—and make the gaps impossible to ignore.</small></div>
-   <div className="version">v0.4.0 public scoreboard</div>
+   <div className="version">v0.4.1 public scoreboard</div>
   </aside>
   <main>
    <section className="hero" id="scoreboard">
