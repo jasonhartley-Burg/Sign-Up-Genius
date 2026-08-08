@@ -1,16 +1,14 @@
 # Changelog
 
-## v0.4.4
-- Renamed public scoreboard sections for easier interpretation.
-- Participation Strength is now Families Stepping Up.
-- Organization Coverage Contribution is now Share of the Work.
-- Simplified public explanations while preserving all calculations.
+## v0.5.0
 
-## v0.4.3
-- Fixed Start-only date filters: a blank End date now resolves to today instead of including future signups.
-- Volunteer Hours detail, program allocations, unmatched review, event totals, and scoreboard metrics use the same bounded assignment-date filter.
-- Added effective-dated volunteer program affiliations.
-- Historical volunteer assignments retain the affiliation active on the assignment date.
-- Admins can change a volunteer's programs with an effective date directly from Volunteer Hours.
-- Added affiliation history display and D1 migration `0005_effective_dated_affiliations.sql`.
-- Program-hour allocations in Volunteer Hours are calculated from assignment-level dated affiliations rather than dividing a volunteer's aggregate hours by their current program count.
+- Split the application into a public read-only scoreboard (`/`) and protected admin console (`/admin`).
+- Public dashboard API no longer returns participant names/emails, unmatched data, or administrative records.
+- Added bearer-token admin authentication using `ADMIN_TOKEN`, with compatibility for `SYNC_ADMIN_TOKEN`.
+- Added manual volunteer-hours entry and deletion for service performed outside SignUpGenius.
+- Manual service uses the same effective-dated program attribution engine as synchronized service.
+- Manual hours contribute to impact/program totals without inflating SignUpGenius need-coverage calculations.
+- Added dynamic July 1 program-year default Start Date.
+- Blank End Date continues to mean through today.
+- Added clickable public program drill-downs using aggregate-only data.
+- Preserved manual overrides, effective-dated affiliation history, proportional multi-program allocation, date filtering, normalized roster, and 15-minute synchronization.

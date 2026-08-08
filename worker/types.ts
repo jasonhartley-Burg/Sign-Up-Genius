@@ -1,1 +1,1 @@
-export interface Env{DB:D1Database;ASSETS:Fetcher;SIGNUPGENIUS_API_KEY:string;SIGNUPGENIUS_API_BASE?:string;APP_NAME?:string;APP_ENV?:string;SYNC_INTERVAL_MINUTES?:string;PROGRAM_CONTACTS_SHEET_ID?:string}
+export interface Env{DB:D1Database;ASSETS:Fetcher;SIGNUPGENIUS_API_KEY:string;SIGNUPGENIUS_API_BASE?:string;APP_NAME?:string;APP_ENV?:string;SYNC_INTERVAL_MINUTES?:string;PROGRAM_CONTACTS_SHEET_ID?:string;ADMIN_TOKEN?:string;SYNC_ADMIN_TOKEN?:string}
