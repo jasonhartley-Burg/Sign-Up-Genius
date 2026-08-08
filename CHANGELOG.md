@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.3
+## v0.4.0
 - Moved Volunteer Hours to a full-width dashboard section so allocation data is no longer clipped.
 - Added a responsive horizontal table wrapper for smaller desktop and iPad widths.
 - Added a volunteer count pill, sticky table header, subtle row striping, and hover states.

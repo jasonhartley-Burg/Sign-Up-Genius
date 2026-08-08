@@ -7,7 +7,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS programs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,required_hours REAL NOT NULL DEFAULT 0,color TEXT,created_at TEXT NOT NULL DEFAULT(datetime('now')),updated_at TEXT NOT NULL DEFAULT(datetime('now')));
 CREATE TABLE IF NOT EXISTS families(id INTEGER PRIMARY KEY AUTOINCREMENT,parent_name TEXT,parent_email TEXT UNIQUE,secondary_email TEXT,phone TEXT,created_at TEXT NOT NULL DEFAULT(datetime('now')),updated_at TEXT NOT NULL DEFAULT(datetime('now')));
 CREATE TABLE IF NOT EXISTS students(id INTEGER PRIMARY KEY AUTOINCREMENT,family_id INTEGER,student_name TEXT NOT NULL,program_id INTEGER,graduation_year INTEGER,created_at TEXT NOT NULL DEFAULT(datetime('now')),updated_at TEXT NOT NULL DEFAULT(datetime('now')));
-CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,signupgenius_id TEXT NOT NULL UNIQUE,title TEXT NOT NULL,event_date TEXT,location TEXT,raw_json TEXT,updated_at TEXT NOT NULL DEFAULT(datetime('now')),created_at TEXT NOT NULL DEFAULT(datetime('now')));
+CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,signupgenius_id TEXT NOT NULL UNIQUE,title TEXT NOT NULL,event_date TEXT,location TEXT,affiliation TEXT,raw_json TEXT,updated_at TEXT NOT NULL DEFAULT(datetime('now')),created_at TEXT NOT NULL DEFAULT(datetime('now')));
 CREATE TABLE IF NOT EXISTS volunteer_slots(id INTEGER PRIMARY KEY AUTOINCREMENT,event_id INTEGER NOT NULL,signupgenius_slot_id TEXT NOT NULL UNIQUE,title TEXT NOT NULL,slot_date TEXT,start_time TEXT,end_time TEXT,hours REAL NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'unknown',volunteer_name TEXT,volunteer_email TEXT,raw_json TEXT,quantity INTEGER NOT NULL DEFAULT 1,hours_known INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL DEFAULT(datetime('now')),updated_at TEXT NOT NULL DEFAULT(datetime('now')));
 CREATE TABLE IF NOT EXISTS sync_log(id INTEGER PRIMARY KEY AUTOINCREMENT,sync_time TEXT NOT NULL,records INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL,message TEXT);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT(datetime('now')));
@@ -26,6 +26,9 @@ INSERT OR IGNORE INTO settings(key,value) VALUES('estimate_untimed_enabled','0')
 
 let schemaReady: Promise<void> | null = null;
 async function ensureColumns(env: Env) {
+  const eventCols = await env.DB.prepare("PRAGMA table_info(events)").all<any>();
+  const eventNames = new Set((eventCols.results || []).map((x:any) => x.name));
+  if (!eventNames.has("affiliation")) await env.DB.prepare("ALTER TABLE events ADD COLUMN affiliation TEXT").run();
   const cols = await env.DB.prepare("PRAGMA table_info(volunteer_slots)").all<any>();
   const names = new Set((cols.results || []).map((x:any) => x.name));
   if (!names.has("quantity")) await env.DB.prepare("ALTER TABLE volunteer_slots ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1").run();
@@ -65,7 +68,7 @@ export default {
     const u=new URL(req.url);
     try {
       await ensureSchema(env);
-      if(u.pathname==="/api/health") return json({ok:true,version:"0.3.3",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true,manualOverrides:true,visualizations:true});
+      if(u.pathname==="/api/health") return json({ok:true,version:"0.4.0",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true,manualOverrides:true,visualizations:true,scoreboard:true,eventAffiliations:true});
       if(u.pathname==="/api/dashboard") {
         const startDate=u.searchParams.get("start")||undefined;
         const endDate=u.searchParams.get("end")||undefined;
@@ -104,6 +107,16 @@ export default {
         const writes=programs.map(program=>env.DB.prepare("INSERT INTO volunteer_program_overrides(email,volunteer_name,program,updated_at) VALUES(?,?,?,datetime('now'))").bind(email,name||null,program));
         await env.DB.batch([deletes,...writes]);
         return json({ok:true,email,programs,message:programs.length?`Saved manual attribution for ${email}: ${programs.join(", ")}.`:`Removed manual attribution for ${email}; roster matching will be used again.`});
+      }
+
+      if(u.pathname==="/api/events/affiliation"&&req.method==="POST") {
+        const b:any=await req.json();
+        const eventId=Number(b.eventId);
+        const affiliation=String(b.affiliation||"").trim();
+        if(!Number.isInteger(eventId)||eventId<=0) return json({error:"A valid event ID is required."},400);
+        if(affiliation.length>100) return json({error:"Affiliation is too long."},400);
+        await env.DB.prepare("UPDATE events SET affiliation=?,updated_at=datetime('now') WHERE id=?").bind(affiliation||null,eventId).run();
+        return json({ok:true,eventId,affiliation:affiliation||null,message:affiliation?`Event affiliation saved as ${affiliation}.`:`Event affiliation cleared.`});
       }
       if(u.pathname.startsWith("/api/")) return json({error:"Not found"},404);
       return env.ASSETS.fetch(req);
