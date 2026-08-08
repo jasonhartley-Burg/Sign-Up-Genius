@@ -1,15 +1,12 @@
-# Miamisburg Band & Guard Boosters Volunteer Impact Scoreboard v0.4.2
+# Miamisburg Band & Guard Boosters Volunteer Impact Scoreboard v0.4.3
 
-Public-facing volunteer impact scoreboard backed by SignUpGenius, Cloudflare Workers/D1, the embedded normalized roster, and persistent manual attribution overrides.
+Cloudflare Worker + D1 volunteer dashboard using SignUpGenius data and the embedded normalized parent roster.
 
-## Attribution model
-Every event is an organization-wide Booster opportunity. Events are not assigned to individual programs. Volunteer credit follows the program(s) represented by the volunteer. Multi-program volunteers split credited hours proportionally across those programs.
+## v0.4.3 highlights
+- Start date with blank End means Start through today; future commitments are excluded.
+- Date-filtered Volunteer Hours detail uses the same range as the public scoreboard.
+- Effective-dated volunteer affiliations preserve historical credit when family program relationships change.
+- Use the **Affiliation** button beside a volunteer to choose programs and an effective date.
+- Existing normalized-roster and manual unmatched assignment behavior remains available for volunteers without dated affiliation history.
 
-## Scoreboards
-- Total Impact: credited volunteer hours by program.
-- Participation Strength: fractional participating caregiver equivalents divided by fractional eligible caregiver equivalents.
-- Organization Coverage Contribution: each program's credited known hours as a share of all known filled volunteer hours.
-- Volunteer Need Coverage: filled volunteer demand compared with available demand.
-
-## Date filtering
-The Start and End date filter is applied server-side using each SignUpGenius assignment start time. It updates KPI totals, events, program standings, participation metrics, unmatched volunteers, and Volunteer Hours detail. This allows individual volunteer totals to be validated for a selected period.
+Deploy with `npx wrangler deploy` from the project root. The Worker automatically creates the new affiliation-history table; migration 0005 is also included for explicit D1 migration workflows.

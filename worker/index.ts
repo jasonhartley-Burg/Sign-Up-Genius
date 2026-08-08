@@ -14,12 +14,16 @@ CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,upd
 CREATE TABLE IF NOT EXISTS contact_mappings(id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT NOT NULL,parent_name TEXT,student_name TEXT,program TEXT NOT NULL,source_tab TEXT,source_type TEXT NOT NULL DEFAULT 'program_roster',updated_at TEXT NOT NULL DEFAULT(datetime('now')));
 CREATE TABLE IF NOT EXISTS contact_sync_log(id INTEGER PRIMARY KEY AUTOINCREMENT,sync_time TEXT NOT NULL,records INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL,message TEXT);
 CREATE TABLE IF NOT EXISTS volunteer_program_overrides(id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT NOT NULL,volunteer_name TEXT,program TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT(datetime('now')),updated_at TEXT NOT NULL DEFAULT(datetime('now')),UNIQUE(email,program));
+CREATE TABLE IF NOT EXISTS volunteer_affiliation_history(id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT NOT NULL,volunteer_name TEXT,program TEXT NOT NULL,effective_from TEXT NOT NULL,effective_to TEXT,created_at TEXT NOT NULL DEFAULT(datetime('now')),updated_at TEXT NOT NULL DEFAULT(datetime('now')),UNIQUE(email,program,effective_from));
 CREATE INDEX IF NOT EXISTS idx_slots_event ON volunteer_slots(event_id);
 CREATE INDEX IF NOT EXISTS idx_slots_email ON volunteer_slots(volunteer_email);
 CREATE INDEX IF NOT EXISTS idx_contact_email ON contact_mappings(email);
 CREATE INDEX IF NOT EXISTS idx_contact_program ON contact_mappings(program);
 CREATE INDEX IF NOT EXISTS idx_override_email ON volunteer_program_overrides(email);
 CREATE INDEX IF NOT EXISTS idx_override_program ON volunteer_program_overrides(program);
+CREATE INDEX IF NOT EXISTS idx_affiliation_history_email ON volunteer_affiliation_history(email);
+CREATE INDEX IF NOT EXISTS idx_affiliation_history_dates ON volunteer_affiliation_history(email,effective_from,effective_to);
+CREATE INDEX IF NOT EXISTS idx_affiliation_history_program ON volunteer_affiliation_history(program);
 INSERT OR IGNORE INTO programs(name,required_hours) VALUES('Guard',0),('Percussion',0),('Winds',0),('Band Boosters',0);
 INSERT OR IGNORE INTO settings(key,value) VALUES('estimate_untimed_enabled','0'),('estimate_untimed_hours','6');
 `;
@@ -68,16 +72,18 @@ export default {
     const u=new URL(req.url);
     try {
       await ensureSchema(env);
-      if(u.pathname==="/api/health") return json({ok:true,version:"0.4.2",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true,manualOverrides:true,visualizations:true,scoreboard:true,organizationContribution:true});
+      if(u.pathname==="/api/health") return json({ok:true,version:"0.4.3",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true,manualOverrides:true,effectiveDatedAffiliations:true,visualizations:true,scoreboard:true,organizationContribution:true});
       if(u.pathname==="/api/dashboard") {
         const startDate=u.searchParams.get("start")||undefined;
         const endDate=u.searchParams.get("end")||undefined;
         const valid=(x:string|undefined)=>!x||/^\d{4}-\d{2}-\d{2}$/.test(x);
         if(!valid(startDate)||!valid(endDate)) return json({error:"Dates must use YYYY-MM-DD format."},400);
         if(startDate&&endDate&&startDate>endDate) return json({error:"Start date cannot be after end date."},400);
+        const today=new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+        const resolvedEndDate=endDate||(startDate?today:undefined);
         const startEpoch=startDate?Math.floor(Date.parse(startDate+"T00:00:00Z")/1000):undefined;
-        const endEpochExclusive=endDate?Math.floor(Date.parse(endDate+"T00:00:00Z")/1000)+86400:undefined;
-        return json(await dashboard(env,{startDate,endDate,startEpoch,endEpochExclusive}));
+        const endEpochExclusive=resolvedEndDate?Math.floor(Date.parse(resolvedEndDate+"T00:00:00Z")/1000)+86400:undefined;
+        return json(await dashboard(env,{startDate,endDate,startEpoch,endEpochExclusive,asOfDate:resolvedEndDate||today}));
       }
       if(u.pathname==="/api/settings"&&req.method==="GET") return json(await getSettings(env));
       if(u.pathname==="/api/settings"&&req.method==="POST") {
@@ -96,6 +102,40 @@ export default {
       if(u.pathname==="/api/contacts/sync"&&req.method==="POST") {
         const r=await syncContacts(env); return json({ok:true,message:`Contact sync complete: ${r.rows} normalized roster mappings across ${Object.keys(r.sourceCounts).length} programs, ${r.uniqueEmails} unique emails, ${r.multiProgramEmails} multi-program emails.`,...r});
       }
+      if(u.pathname==="/api/affiliations/history"&&req.method==="GET") {
+        const email=String(u.searchParams.get("email")||"").trim().toLowerCase();
+        if(!email||!email.includes("@")) return json({error:"A valid volunteer email is required."},400);
+        const rows=await env.DB.prepare("SELECT program,effective_from effectiveFrom,effective_to effectiveTo,volunteer_name volunteerName FROM volunteer_affiliation_history WHERE LOWER(email)=? ORDER BY effective_from DESC,program").bind(email).all<any>();
+        return json({email,history:rows.results||[]});
+      }
+      if(u.pathname==="/api/affiliations/change"&&req.method==="POST") {
+        const b:any=await req.json();
+        const email=String(b.email||"").trim().toLowerCase();
+        const name=String(b.name||"").trim();
+        const effectiveDate=String(b.effectiveDate||"").trim();
+        const programs=Array.from(new Set((Array.isArray(b.programs)?b.programs:[]).map((x:any)=>String(x).trim()).filter(Boolean))) as string[];
+        if(!email||!email.includes("@")) return json({error:"A valid volunteer email is required."},400);
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate)) return json({error:"Effective date must use YYYY-MM-DD format."},400);
+        if(programs.length>10) return json({error:"Too many programs selected."},400);
+        const previousDate=new Date(effectiveDate+"T00:00:00Z"); previousDate.setUTCDate(previousDate.getUTCDate()-1);
+        const previous=previousDate.toISOString().slice(0,10);
+        const existing=await env.DB.prepare("SELECT COUNT(*) n FROM volunteer_affiliation_history WHERE LOWER(email)=?").bind(email).first<any>();
+        if(!Number(existing?.n||0)){
+          const overrides=await env.DB.prepare("SELECT program FROM volunteer_program_overrides WHERE LOWER(email)=? ORDER BY program").bind(email).all<any>();
+          const roster=overrides.results?.length?overrides:await env.DB.prepare("SELECT DISTINCT program FROM contact_mappings WHERE LOWER(email)=? ORDER BY program").bind(email).all<any>();
+          const oldPrograms=(roster.results||[]).map((x:any)=>String(x.program||"").trim()).filter(Boolean);
+          if(oldPrograms.length){
+            await env.DB.batch(oldPrograms.map(program=>env.DB.prepare("INSERT OR IGNORE INTO volunteer_affiliation_history(email,volunteer_name,program,effective_from,effective_to,updated_at) VALUES(?,?,?,'1900-01-01',?,datetime('now'))").bind(email,name||null,program,previous)));
+          }
+        }
+        await env.DB.prepare("UPDATE volunteer_affiliation_history SET effective_to=?,updated_at=datetime('now') WHERE LOWER(email)=? AND effective_from<? AND (effective_to IS NULL OR effective_to>=?)").bind(previous,email,effectiveDate,effectiveDate).run();
+        await env.DB.prepare("DELETE FROM volunteer_affiliation_history WHERE LOWER(email)=? AND effective_from>=?").bind(email,effectiveDate).run();
+        if(programs.length){
+          await env.DB.batch(programs.map(program=>env.DB.prepare("INSERT INTO volunteer_affiliation_history(email,volunteer_name,program,effective_from,effective_to,updated_at) VALUES(?,?,?,?,NULL,datetime('now'))").bind(email,name||null,program,effectiveDate)));
+        }
+        return json({ok:true,email,effectiveDate,programs,message:`Affiliation change saved for ${email} effective ${effectiveDate}: ${programs.length?programs.join(", "):"no active programs"}. Historical assignments before that date are unchanged.`});
+      }
+
       if(u.pathname==="/api/attribution/override"&&req.method==="POST") {
         const b:any=await req.json();
         const email=String(b.email||"").trim().toLowerCase();
