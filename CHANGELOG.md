@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.0 — 2026-08-08
+- Embedded the normalized 2026–2027 parent roster as the authoritative program mapping.
+- Batched D1 contact writes to avoid Cloudflare Worker subrequest-limit failures.
+- Multi-program volunteers now split hours proportionally across represented programs.
+- Added start-date/end-date filtering across KPIs, program attribution, events, volunteers, and unmatched review.
+- Added v0.3.0 health metadata for easier deployment verification.
+
 ## v0.2.9 — normalized roster + split program credit
 - Uses the uploaded 2026–2027 normalized parent contacts as the authoritative program roster.
 - Automatically splits each volunteer's hours evenly across every program they represent.

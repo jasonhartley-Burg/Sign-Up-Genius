@@ -22,3 +22,7 @@ Known Table is supplemental only. The app primarily normalizes the actual progra
 Existing D1 and SignUpGenius bindings/secrets are unchanged. `0003_attribution_engine.sql` is included, but the Worker also self-creates the new tables.
 
 After deployment, click **Sync Contacts** (or **Sync All**) once and review Contact Match, Program Participation, and Needs Attribution Review.
+
+
+## v0.3.0 notes
+The dashboard uses the embedded normalized parent roster for attribution. Contact sync uses D1 batch writes. Date filters are sent to `/api/dashboard?start=YYYY-MM-DD&end=YYYY-MM-DD` and apply to SignUpGenius assignment start timestamps.

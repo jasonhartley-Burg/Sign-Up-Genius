@@ -62,8 +62,17 @@ export default {
     const u=new URL(req.url);
     try {
       await ensureSchema(env);
-      if(u.pathname==="/api/health") return json({ok:true,version:"0.2.9",contactsSource:"embedded-normalized-roster"});
-      if(u.pathname==="/api/dashboard") return json(await dashboard(env));
+      if(u.pathname==="/api/health") return json({ok:true,version:"0.3.0",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true});
+      if(u.pathname==="/api/dashboard") {
+        const startDate=u.searchParams.get("start")||undefined;
+        const endDate=u.searchParams.get("end")||undefined;
+        const valid=(x:string|undefined)=>!x||/^\d{4}-\d{2}-\d{2}$/.test(x);
+        if(!valid(startDate)||!valid(endDate)) return json({error:"Dates must use YYYY-MM-DD format."},400);
+        if(startDate&&endDate&&startDate>endDate) return json({error:"Start date cannot be after end date."},400);
+        const startEpoch=startDate?Math.floor(Date.parse(startDate+"T00:00:00Z")/1000):undefined;
+        const endEpochExclusive=endDate?Math.floor(Date.parse(endDate+"T00:00:00Z")/1000)+86400:undefined;
+        return json(await dashboard(env,{startDate,endDate,startEpoch,endEpochExclusive}));
+      }
       if(u.pathname==="/api/settings"&&req.method==="GET") return json(await getSettings(env));
       if(u.pathname==="/api/settings"&&req.method==="POST") {
         const b:any=await req.json(); const enabled=!!b.estimateUntimedEnabled; const hours=Number(b.estimateUntimedHours);
