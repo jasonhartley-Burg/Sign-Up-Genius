@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.2
+- Added persistent D1 manual program overrides for unmatched volunteers.
+- Manual assignments take priority over the embedded normalized parent roster.
+- Added the Miamisburg Band & Guard Boosters logo to dashboard branding.
+- Added Volunteer Mix visualization using fractional volunteer-equivalent credits.
+- Added Program Performance ranking from highest to lowest credited volunteer hours.
+- Preserved proportional multi-program attribution and date-range filtering.
+
+
 ## v0.3.1
 - Visual refresh with richer navy/blue styling, accented KPI cards, softer surfaces, improved spacing, and clearer hierarchy.
 - Added volunteer initials/avatars and wrapping program badges.

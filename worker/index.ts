@@ -13,10 +13,13 @@ CREATE TABLE IF NOT EXISTS sync_log(id INTEGER PRIMARY KEY AUTOINCREMENT,sync_ti
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT(datetime('now')));
 CREATE TABLE IF NOT EXISTS contact_mappings(id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT NOT NULL,parent_name TEXT,student_name TEXT,program TEXT NOT NULL,source_tab TEXT,source_type TEXT NOT NULL DEFAULT 'program_roster',updated_at TEXT NOT NULL DEFAULT(datetime('now')));
 CREATE TABLE IF NOT EXISTS contact_sync_log(id INTEGER PRIMARY KEY AUTOINCREMENT,sync_time TEXT NOT NULL,records INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL,message TEXT);
+CREATE TABLE IF NOT EXISTS volunteer_program_overrides(id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT NOT NULL,volunteer_name TEXT,program TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT(datetime('now')),updated_at TEXT NOT NULL DEFAULT(datetime('now')),UNIQUE(email,program));
 CREATE INDEX IF NOT EXISTS idx_slots_event ON volunteer_slots(event_id);
 CREATE INDEX IF NOT EXISTS idx_slots_email ON volunteer_slots(volunteer_email);
 CREATE INDEX IF NOT EXISTS idx_contact_email ON contact_mappings(email);
 CREATE INDEX IF NOT EXISTS idx_contact_program ON contact_mappings(program);
+CREATE INDEX IF NOT EXISTS idx_override_email ON volunteer_program_overrides(email);
+CREATE INDEX IF NOT EXISTS idx_override_program ON volunteer_program_overrides(program);
 INSERT OR IGNORE INTO programs(name,required_hours) VALUES('Guard',0),('Percussion',0),('Winds',0),('Band Boosters',0);
 INSERT OR IGNORE INTO settings(key,value) VALUES('estimate_untimed_enabled','0'),('estimate_untimed_hours','6');
 `;
@@ -62,7 +65,7 @@ export default {
     const u=new URL(req.url);
     try {
       await ensureSchema(env);
-      if(u.pathname==="/api/health") return json({ok:true,version:"0.3.1",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true});
+      if(u.pathname==="/api/health") return json({ok:true,version:"0.3.2",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true,manualOverrides:true,visualizations:true});
       if(u.pathname==="/api/dashboard") {
         const startDate=u.searchParams.get("start")||undefined;
         const endDate=u.searchParams.get("end")||undefined;
@@ -89,6 +92,18 @@ export default {
       }
       if(u.pathname==="/api/contacts/sync"&&req.method==="POST") {
         const r=await syncContacts(env); return json({ok:true,message:`Contact sync complete: ${r.rows} normalized roster mappings across ${Object.keys(r.sourceCounts).length} programs, ${r.uniqueEmails} unique emails, ${r.multiProgramEmails} multi-program emails.`,...r});
+      }
+      if(u.pathname==="/api/attribution/override"&&req.method==="POST") {
+        const b:any=await req.json();
+        const email=String(b.email||"").trim().toLowerCase();
+        const name=String(b.name||"").trim();
+        const programs=Array.from(new Set((Array.isArray(b.programs)?b.programs:[]).map((x:any)=>String(x).trim()).filter(Boolean))) as string[];
+        if(!email||!email.includes("@")) return json({error:"A valid volunteer email is required."},400);
+        if(programs.length>10) return json({error:"Too many programs selected."},400);
+        const deletes=env.DB.prepare("DELETE FROM volunteer_program_overrides WHERE LOWER(email)=?").bind(email);
+        const writes=programs.map(program=>env.DB.prepare("INSERT INTO volunteer_program_overrides(email,volunteer_name,program,updated_at) VALUES(?,?,?,datetime('now'))").bind(email,name||null,program));
+        await env.DB.batch([deletes,...writes]);
+        return json({ok:true,email,programs,message:programs.length?`Saved manual attribution for ${email}: ${programs.join(", ")}.`:`Removed manual attribution for ${email}; roster matching will be used again.`});
       }
       if(u.pathname.startsWith("/api/")) return json({error:"Not found"},404);
       return env.ASSETS.fetch(req);

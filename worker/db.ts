@@ -17,6 +17,15 @@ function slotRange(alias:string, range:DashboardRange){
 }
 function stmt(env:Env,sql:string,binds:any[]){const q=env.DB.prepare(sql);return binds.length?q.bind(...binds):q}
 
+const EFFECTIVE_CTE=`
+  override_emails AS (SELECT DISTINCT LOWER(email) email FROM volunteer_program_overrides),
+  effective_cm AS (
+    SELECT LOWER(email) email, program, 'manual' source FROM volunteer_program_overrides
+    UNION ALL
+    SELECT LOWER(c.email) email, c.program, 'roster' source FROM contact_mappings c
+    WHERE LOWER(c.email) NOT IN (SELECT email FROM override_emails)
+  )`;
+
 export async function dashboard(env:Env, range:DashboardRange={}){
   const cfg=await getSettings(env), est=cfg.estimateUntimedEnabled?cfg.estimateUntimedHours:0;
   const rf=slotRange("v",range);
@@ -28,35 +37,38 @@ export async function dashboard(env:Env, range:DashboardRange={}){
   const cl=await env.DB.prepare("SELECT sync_time syncTime,status,message FROM contact_sync_log ORDER BY id DESC LIMIT 1").first<any>();
 
   const volunteers=await stmt(env,`
-    WITH cm AS (SELECT LOWER(email) email,COUNT(DISTINCT program) program_count,GROUP_CONCAT(DISTINCT program) programs,MIN(program) single_program FROM contact_mappings GROUP BY LOWER(email))
+    WITH ${EFFECTIVE_CTE}, cm AS (SELECT email,COUNT(DISTINCT program) program_count,GROUP_CONCAT(DISTINCT program) programs,MIN(program) single_program,MAX(CASE WHEN source='manual' THEN 1 ELSE 0 END) manual FROM effective_cm GROUP BY email)
     SELECT COALESCE(NULLIF(v.volunteer_name,''),v.volunteer_email,'Unknown') name,v.volunteer_email email,
       COALESCE(SUM(CASE WHEN v.hours_known=1 THEN v.hours*v.quantity ELSE 0 END),0) knownHours,
       COALESCE(SUM(CASE WHEN v.hours_known=0 THEN v.quantity ELSE 0 END),0) tbdAssignments,
       COALESCE(SUM(v.quantity),0) assignments,
       CASE WHEN cm.program_count=1 THEN cm.single_program WHEN cm.program_count>1 THEN cm.programs ELSE 'Unmatched' END attribution,
-      COALESCE(cm.program_count,0) programCount
+      COALESCE(cm.program_count,0) programCount, COALESCE(cm.manual,0) manualOverride
     FROM volunteer_slots v LEFT JOIN cm ON LOWER(v.volunteer_email)=cm.email
     WHERE v.status='filled'${rf.sql}
     GROUP BY LOWER(COALESCE(v.volunteer_email,v.volunteer_name)) ORDER BY knownHours DESC,name LIMIT 250`,rf.binds).all<any>();
 
   const programs=await stmt(env,`
-    WITH distinct_cm AS (SELECT DISTINCT LOWER(email) email, program FROM contact_mappings),
+    WITH ${EFFECTIVE_CTE}, distinct_cm AS (SELECT DISTINCT email, program FROM effective_cm),
     counts AS (SELECT email,COUNT(*) program_count FROM distinct_cm GROUP BY email),
     vh AS (SELECT LOWER(v.volunteer_email) email,SUM(CASE WHEN v.hours_known=1 THEN v.hours*v.quantity ELSE 0 END) known_hours,SUM(CASE WHEN v.hours_known=0 THEN v.quantity ELSE 0 END) tbd_assignments FROM volunteer_slots v WHERE v.status='filled' AND v.volunteer_email IS NOT NULL${rf.sql} GROUP BY LOWER(v.volunteer_email))
-    SELECT d.program name,COUNT(DISTINCT d.email) volunteers,COALESCE(SUM(vh.known_hours/counts.program_count),0) knownHours,COALESCE(SUM(vh.tbd_assignments*1.0/counts.program_count),0) tbdAssignments
+    SELECT d.program name,COUNT(DISTINCT d.email) volunteers,COALESCE(SUM(1.0/counts.program_count),0) volunteerCredits,COALESCE(SUM(vh.known_hours/counts.program_count),0) knownHours,COALESCE(SUM(vh.tbd_assignments*1.0/counts.program_count),0) tbdAssignments
     FROM distinct_cm d JOIN counts ON counts.email=d.email JOIN vh ON vh.email=d.email GROUP BY d.program ORDER BY knownHours DESC,name`,rf.binds).all<any>();
 
   const match=await stmt(env,`
-    WITH cm AS (SELECT LOWER(email) email,COUNT(DISTINCT program) pc FROM contact_mappings GROUP BY LOWER(email)),
+    WITH ${EFFECTIVE_CTE}, cm AS (SELECT email,COUNT(DISTINCT program) pc FROM effective_cm GROUP BY email),
     vset AS (SELECT DISTINCT LOWER(v.volunteer_email) email FROM volunteer_slots v WHERE v.status='filled' AND v.volunteer_email IS NOT NULL${rf.sql})
     SELECT COUNT(*) total,COALESCE(SUM(CASE WHEN cm.pc>=1 THEN 1 ELSE 0 END),0) matched,COALESCE(SUM(CASE WHEN cm.pc>1 THEN 1 ELSE 0 END),0) ambiguous,COALESCE(SUM(CASE WHEN cm.pc IS NULL THEN 1 ELSE 0 END),0) unmatched FROM vset LEFT JOIN cm ON cm.email=vset.email`,rf.binds).first<any>();
 
   const contacts=await env.DB.prepare("SELECT COUNT(*) mappings,COUNT(DISTINCT LOWER(email)) uniqueEmails FROM contact_mappings").first<any>();
+  const overrides=await env.DB.prepare("SELECT COUNT(DISTINCT LOWER(email)) emails,COUNT(*) mappings FROM volunteer_program_overrides").first<any>();
   const unmatched=await stmt(env,`
-    WITH cm AS (SELECT LOWER(email) email,COUNT(DISTINCT program) pc,GROUP_CONCAT(DISTINCT program) programs FROM contact_mappings GROUP BY LOWER(email))
+    WITH ${EFFECTIVE_CTE}, cm AS (SELECT email,COUNT(DISTINCT program) pc,GROUP_CONCAT(DISTINCT program) programs FROM effective_cm GROUP BY email)
     SELECT COALESCE(NULLIF(v.volunteer_name,''),v.volunteer_email,'Unknown') name,v.volunteer_email email,COALESCE(cm.programs,'') programs,COALESCE(cm.pc,0) programCount,SUM(CASE WHEN v.hours_known=1 THEN v.hours*v.quantity ELSE 0 END) knownHours,SUM(CASE WHEN v.hours_known=0 THEN v.quantity ELSE 0 END) tbdAssignments
     FROM volunteer_slots v LEFT JOIN cm ON LOWER(v.volunteer_email)=cm.email WHERE v.status='filled' AND cm.pc IS NULL${rf.sql}
     GROUP BY LOWER(COALESCE(v.volunteer_email,v.volunteer_name)) ORDER BY knownHours DESC,name LIMIT 100`,rf.binds).all<any>();
 
-  return {range:{startDate:range.startDate||null,endDate:range.endDate||null},settings:cfg,summary:{hoursNeeded:needed,hoursFilled:filled,hoursRemaining:Math.max(0,needed-filled),knownHoursNeeded:knownNeeded,knownHoursFilled:knownFilled,estimatedHoursNeeded:Number(s?.tbdNeededQty||0)*est,estimatedHoursFilled:Number(s?.tbdFilledQty||0)*est,fillRate:needed?filled/needed*100:0,activeEvents:e.results.length,totalAssignments:Number(s?.totalAssignments||0),openSlots:Number(s?.openSlots||0),assignedSlots:Number(s?.assignedSlots||0),tbdAssignments:Number(s?.tbdAssignments||0),lastSyncAt:l?.syncTime||null,lastSyncStatus:l?.status||null,contactSyncAt:cl?.syncTime||null,contactSyncStatus:cl?.status||null,contactMappings:Number(contacts?.mappings||0),uniqueContactEmails:Number(contacts?.uniqueEmails||0),matchedVolunteers:Number(match?.matched||0),ambiguousVolunteers:Number(match?.ambiguous||0),unmatchedVolunteers:Number(match?.unmatched||0),volunteerEmails:Number(match?.total||0)},programs:(programs.results||[]).map((x:any)=>({...x,knownHours:Number(x.knownHours||0),tbdAssignments:Number(x.tbdAssignments||0),volunteers:Number(x.volunteers||0)})),events:(e.results||[]).map((x:any)=>({...x,eventDate:x.eventDate||(x.firstEpoch?new Date(Number(x.firstEpoch)*1000).toISOString():null),hoursNeeded:Number(x.knownNeeded||0)+Number(x.tbdQty||0)*est,hoursFilled:Number(x.knownFilled||0)+Number(x.tbdFilledQty||0)*est})),volunteers:volunteers.results,unmatched:unmatched.results};
+  const availablePrograms=await env.DB.prepare("SELECT program name FROM (SELECT DISTINCT program FROM contact_mappings UNION SELECT DISTINCT program FROM volunteer_program_overrides) WHERE program IS NOT NULL AND TRIM(program)<>'' ORDER BY name").all<any>();
+
+  return {range:{startDate:range.startDate||null,endDate:range.endDate||null},settings:cfg,summary:{hoursNeeded:needed,hoursFilled:filled,hoursRemaining:Math.max(0,needed-filled),knownHoursNeeded:knownNeeded,knownHoursFilled:knownFilled,estimatedHoursNeeded:Number(s?.tbdNeededQty||0)*est,estimatedHoursFilled:Number(s?.tbdFilledQty||0)*est,fillRate:needed?filled/needed*100:0,activeEvents:e.results.length,totalAssignments:Number(s?.totalAssignments||0),openSlots:Number(s?.openSlots||0),assignedSlots:Number(s?.assignedSlots||0),tbdAssignments:Number(s?.tbdAssignments||0),lastSyncAt:l?.syncTime||null,lastSyncStatus:l?.status||null,contactSyncAt:cl?.syncTime||null,contactSyncStatus:cl?.status||null,contactMappings:Number(contacts?.mappings||0),uniqueContactEmails:Number(contacts?.uniqueEmails||0),manualOverrideEmails:Number(overrides?.emails||0),manualOverrideMappings:Number(overrides?.mappings||0),matchedVolunteers:Number(match?.matched||0),ambiguousVolunteers:Number(match?.ambiguous||0),unmatchedVolunteers:Number(match?.unmatched||0),volunteerEmails:Number(match?.total||0)},programs:(programs.results||[]).map((x:any)=>({...x,knownHours:Number(x.knownHours||0),tbdAssignments:Number(x.tbdAssignments||0),volunteers:Number(x.volunteers||0),volunteerCredits:Number(x.volunteerCredits||0)})),events:(e.results||[]).map((x:any)=>({...x,eventDate:x.eventDate||(x.firstEpoch?new Date(Number(x.firstEpoch)*1000).toISOString():null),hoursNeeded:Number(x.knownNeeded||0)+Number(x.tbdQty||0)*est,hoursFilled:Number(x.knownFilled||0)+Number(x.tbdFilledQty||0)*est})),volunteers:volunteers.results,unmatched:unmatched.results,availablePrograms:(availablePrograms.results||[]).map((x:any)=>x.name)};
 }
