@@ -1,28 +1,15 @@
-# Volunteer Dashboard v0.2.8
+# Miamisburg Band & Guard Boosters Volunteer Impact Scoreboard v0.4.2
 
-This build adds roster-based program attribution to the existing SignUpGenius hours engine.
+Public-facing volunteer impact scoreboard backed by SignUpGenius, Cloudflare Workers/D1, the embedded normalized roster, and persistent manual attribution overrides.
 
-## Program Contacts source
-Default spreadsheet ID: `1bbRVZGY-gr6WFcgzayD8eQX22LuGGJIqWQqipF4PB90`
+## Attribution model
+Every event is an organization-wide Booster opportunity. Events are not assigned to individual programs. Volunteer credit follows the program(s) represented by the volunteer. Multi-program volunteers split credited hours proportionally across those programs.
 
-Optional Worker variable: `PROGRAM_CONTACTS_SHEET_ID`
+## Scoreboards
+- Total Impact: credited volunteer hours by program.
+- Participation Strength: fractional participating caregiver equivalents divided by fractional eligible caregiver equivalents.
+- Organization Coverage Contribution: each program's credited known hours as a share of all known filled volunteer hours.
+- Volunteer Need Coverage: filled volunteer demand compared with available demand.
 
-The Worker reads these tabs as CSV: A Guard, Elementary Fall Guard, Fall Guard, Marching Band, World, and Known Table. The Google Sheet must be readable by the Worker (typically **Anyone with the link → Viewer**).
-
-Known Table is supplemental only. The app primarily normalizes the actual program roster tabs.
-
-## Attribution logic
-- Volunteer matching key: normalized lowercase email.
-- Exactly one roster program → attributed automatically.
-- More than one roster program → Multiple Programs / review required.
-- No roster email match → Unmatched / review required.
-- Ambiguous hours are excluded from program percentages rather than guessed.
-
-## Deploy
-Existing D1 and SignUpGenius bindings/secrets are unchanged. `0003_attribution_engine.sql` is included, but the Worker also self-creates the new tables.
-
-After deployment, click **Sync Contacts** (or **Sync All**) once and review Contact Match, Program Participation, and Needs Attribution Review.
-
-
-## v0.3.1 notes
-The dashboard uses the embedded normalized parent roster for attribution. Contact sync uses D1 batch writes. Date filters are sent to `/api/dashboard?start=YYYY-MM-DD&end=YYYY-MM-DD` and apply to SignUpGenius assignment start timestamps.
+## Date filtering
+The Start and End date filter is applied server-side using each SignUpGenius assignment start time. It updates KPI totals, events, program standings, participation metrics, unmatched volunteers, and Volunteer Hours detail. This allows individual volunteer totals to be validated for a selected period.

@@ -68,7 +68,7 @@ export default {
     const u=new URL(req.url);
     try {
       await ensureSchema(env);
-      if(u.pathname==="/api/health") return json({ok:true,version:"0.4.1",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true,manualOverrides:true,visualizations:true,scoreboard:true,eventAffiliations:true});
+      if(u.pathname==="/api/health") return json({ok:true,version:"0.4.2",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true,manualOverrides:true,visualizations:true,scoreboard:true,organizationContribution:true});
       if(u.pathname==="/api/dashboard") {
         const startDate=u.searchParams.get("start")||undefined;
         const endDate=u.searchParams.get("end")||undefined;
@@ -109,15 +109,6 @@ export default {
         return json({ok:true,email,programs,message:programs.length?`Saved manual attribution for ${email}: ${programs.join(", ")}.`:`Removed manual attribution for ${email}; roster matching will be used again.`});
       }
 
-      if(u.pathname==="/api/events/affiliation"&&req.method==="POST") {
-        const b:any=await req.json();
-        const eventId=Number(b.eventId);
-        const affiliation=String(b.affiliation||"").trim();
-        if(!Number.isInteger(eventId)||eventId<=0) return json({error:"A valid event ID is required."},400);
-        if(affiliation.length>100) return json({error:"Affiliation is too long."},400);
-        await env.DB.prepare("UPDATE events SET affiliation=?,updated_at=datetime('now') WHERE id=?").bind(affiliation||null,eventId).run();
-        return json({ok:true,eventId,affiliation:affiliation||null,message:affiliation?`Event affiliation saved as ${affiliation}.`:`Event affiliation cleared.`});
-      }
       if(u.pathname.startsWith("/api/")) return json({error:"Not found"},404);
       return env.ASSETS.fetch(req);
     } catch(e) { return json({error:e instanceof Error?e.message:"Unexpected server error"},500); }
