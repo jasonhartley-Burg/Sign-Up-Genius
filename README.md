@@ -24,5 +24,5 @@ Existing D1 and SignUpGenius bindings/secrets are unchanged. `0003_attribution_e
 After deployment, click **Sync Contacts** (or **Sync All**) once and review Contact Match, Program Participation, and Needs Attribution Review.
 
 
-## v0.3.0 notes
+## v0.3.1 notes
 The dashboard uses the embedded normalized parent roster for attribution. Contact sync uses D1 batch writes. Date filters are sent to `/api/dashboard?start=YYYY-MM-DD&end=YYYY-MM-DD` and apply to SignUpGenius assignment start timestamps.
