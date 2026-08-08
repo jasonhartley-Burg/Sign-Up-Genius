@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.3
+- Moved Volunteer Hours to a full-width dashboard section so allocation data is no longer clipped.
+- Added a responsive horizontal table wrapper for smaller desktop and iPad widths.
+- Added a volunteer count pill, sticky table header, subtle row striping, and hover states.
+- Rebalanced Volunteer Hours columns to give program allocation more room.
+- Improved visual consistency of insight, program, event, review, and KPI cards.
+- Kept attribution, date filtering, manual overrides, and all calculations unchanged.
+
 ## v0.3.2
 - Added persistent D1 manual program overrides for unmatched volunteers.
 - Manual assignments take priority over the embedded normalized parent roster.
