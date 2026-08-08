@@ -1,8 +1,8 @@
-# Miamisburg Band & Guard Boosters Volunteer Impact Scoreboard v0.4.3
+# Miamisburg Band & Guard Boosters Volunteer Impact Scoreboard v0.4.4
 
 Cloudflare Worker + D1 volunteer dashboard using SignUpGenius data and the embedded normalized parent roster.
 
-## v0.4.3 highlights
+## v0.4.4 highlights
 - Start date with blank End means Start through today; future commitments are excluded.
 - Date-filtered Volunteer Hours detail uses the same range as the public scoreboard.
 - Effective-dated volunteer affiliations preserve historical credit when family program relationships change.

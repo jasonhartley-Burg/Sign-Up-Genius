@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.4
+- Renamed public scoreboard sections for easier interpretation.
+- Participation Strength is now Families Stepping Up.
+- Organization Coverage Contribution is now Share of the Work.
+- Simplified public explanations while preserving all calculations.
+
 ## v0.4.3
 - Fixed Start-only date filters: a blank End date now resolves to today instead of including future signups.
 - Volunteer Hours detail, program allocations, unmatched review, event totals, and scoreboard metrics use the same bounded assignment-date filter.
