@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.9 — normalized roster + split program credit
+- Uses the uploaded 2026–2027 normalized parent contacts as the authoritative program roster.
+- Automatically splits each volunteer's hours evenly across every program they represent.
+- Multi-program volunteers are no longer treated as unresolved or excluded from program totals.
+- The unmatched review contains only volunteers with no roster email match.
+- Reworked the main dashboard columns so Volunteer Hours sits directly beneath Program Participation instead of leaving a large blank area.
+- Updated roster/status wording throughout the UI.
+
+
 ## v0.2.8
 - Added Program Contacts attribution engine.
 - Automatically normalizes A Guard, Elementary Fall Guard, Fall Guard, Marching Band, and World roster tabs from the configured Google Sheet.

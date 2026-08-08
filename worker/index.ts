@@ -62,7 +62,7 @@ export default {
     const u=new URL(req.url);
     try {
       await ensureSchema(env);
-      if(u.pathname==="/api/health") return json({ok:true,version:"0.2.8",contactsSheetConfigured:!!(env.PROGRAM_CONTACTS_SHEET_ID||"1bbRVZGY-gr6WFcgzayD8eQX22LuGGJIqWQqipF4PB90")});
+      if(u.pathname==="/api/health") return json({ok:true,version:"0.2.9",contactsSource:"embedded-normalized-roster"});
       if(u.pathname==="/api/dashboard") return json(await dashboard(env));
       if(u.pathname==="/api/settings"&&req.method==="GET") return json(await getSettings(env));
       if(u.pathname==="/api/settings"&&req.method==="POST") {
@@ -79,7 +79,7 @@ export default {
         return json({ok:true,message:`Sync complete: ${r.signup.events} events, ${r.signup.filledQty} filled assignments, ${r.signup.openQty} open assignments.${c}`});
       }
       if(u.pathname==="/api/contacts/sync"&&req.method==="POST") {
-        const r=await syncContacts(env); return json({ok:true,message:`Contact sync complete: ${r.rows} mappings from ${Object.keys(r.sourceCounts).length} tabs, ${r.uniqueEmails} unique emails, ${r.multiProgramEmails} multi-program emails.`,...r});
+        const r=await syncContacts(env); return json({ok:true,message:`Contact sync complete: ${r.rows} normalized roster mappings across ${Object.keys(r.sourceCounts).length} programs, ${r.uniqueEmails} unique emails, ${r.multiProgramEmails} multi-program emails.`,...r});
       }
       if(u.pathname.startsWith("/api/")) return json({error:"Not found"},404);
       return env.ASSETS.fetch(req);
