@@ -108,11 +108,11 @@ export default {
       if(adminOK(req,env)&&u.pathname==="/api/sync"&&req.method==="POST") {
         if(!env.SIGNUPGENIUS_API_KEY) return json({error:"SIGNUPGENIUS_API_KEY is not configured."},500);
         const r=await runAll(env);
-        const c=r.contacts?` Contacts: ${r.contacts.uniqueEmails} unique emails, ${r.contacts.multiProgramEmails} multi-program.`:` Contacts not refreshed: ${r.contactError}`;
+        const c=r.contacts?` Contacts: ${r.contacts.uniqueEmails} unique emails, ${r.contacts.multiProgramEmails} multi-activity.`:` Contacts not refreshed: ${r.contactError}`;
         return json({ok:true,message:`Sync complete: ${r.signup.events} events, ${r.signup.filledQty} filled assignments, ${r.signup.openQty} open assignments.${c}`});
       }
       if(adminOK(req,env)&&u.pathname==="/api/contacts/sync"&&req.method==="POST") {
-        const r=await syncContacts(env); return json({ok:true,message:`Contact sync complete: ${r.rows} normalized roster mappings across ${Object.keys(r.sourceCounts).length} programs, ${r.uniqueEmails} unique emails, ${r.multiProgramEmails} multi-program emails.`,...r});
+        const r=await syncContacts(env); return json({ok:true,message:`Contact sync complete: ${r.rows} normalized roster mappings across ${Object.keys(r.sourceCounts).length} activities, ${r.uniqueEmails} unique emails, ${r.multiProgramEmails} multi-activity emails.`,...r});
       }
       if(adminOK(req,env)&&u.pathname==="/api/affiliations/history"&&req.method==="GET") {
         const email=String(u.searchParams.get("email")||"").trim().toLowerCase();
@@ -128,7 +128,7 @@ export default {
         const programs=Array.from(new Set((Array.isArray(b.programs)?b.programs:[]).map((x:any)=>String(x).trim()).filter(Boolean))) as string[];
         if(!email||!email.includes("@")) return json({error:"A valid volunteer email is required."},400);
         if(!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate)) return json({error:"Effective date must use YYYY-MM-DD format."},400);
-        if(programs.length>10) return json({error:"Too many programs selected."},400);
+        if(programs.length>10) return json({error:"Too many activities selected."},400);
         const previousDate=new Date(effectiveDate+"T00:00:00Z"); previousDate.setUTCDate(previousDate.getUTCDate()-1);
         const previous=previousDate.toISOString().slice(0,10);
         const existing=await env.DB.prepare("SELECT COUNT(*) n FROM volunteer_affiliation_history WHERE LOWER(email)=?").bind(email).first<any>();
@@ -145,7 +145,7 @@ export default {
         if(programs.length){
           await env.DB.batch(programs.map(program=>env.DB.prepare("INSERT INTO volunteer_affiliation_history(email,volunteer_name,program,effective_from,effective_to,updated_at) VALUES(?,?,?,?,NULL,datetime('now'))").bind(email,name||null,program,effectiveDate)));
         }
-        return json({ok:true,email,effectiveDate,programs,message:`Affiliation change saved for ${email} effective ${effectiveDate}: ${programs.length?programs.join(", "):"no active programs"}. Historical assignments before that date are unchanged.`});
+        return json({ok:true,email,effectiveDate,programs,message:`Affiliation change saved for ${email} effective ${effectiveDate}: ${programs.length?programs.join(", "):"no active activities"}. Historical assignments before that date are unchanged.`});
       }
 
       if(adminOK(req,env)&&u.pathname==="/api/attribution/override"&&req.method==="POST") {
@@ -154,7 +154,7 @@ export default {
         const name=String(b.name||"").trim();
         const programs=Array.from(new Set((Array.isArray(b.programs)?b.programs:[]).map((x:any)=>String(x).trim()).filter(Boolean))) as string[];
         if(!email||!email.includes("@")) return json({error:"A valid volunteer email is required."},400);
-        if(programs.length>10) return json({error:"Too many programs selected."},400);
+        if(programs.length>10) return json({error:"Too many activities selected."},400);
         const deletes=env.DB.prepare("DELETE FROM volunteer_program_overrides WHERE LOWER(email)=?").bind(email);
         const writes=programs.map(program=>env.DB.prepare("INSERT INTO volunteer_program_overrides(email,volunteer_name,program,updated_at) VALUES(?,?,?,datetime('now'))").bind(email,name||null,program));
         await env.DB.batch([deletes,...writes]);
@@ -173,7 +173,7 @@ export default {
         const name=String(b.name||"").trim(),email=String(b.email||"").trim().toLowerCase(),workDate=String(b.workDate||"").trim(),description=String(b.description||"Manual volunteer service").trim(),location=String(b.location||"").trim();
         const hours=Number(b.hours);
         if(!name) return json({error:"Volunteer name is required."},400);
-        if(!email||!email.includes("@")) return json({error:"A valid volunteer email is required so the hours can be attributed to the correct program."},400);
+        if(!email||!email.includes("@")) return json({error:"A valid volunteer email is required so the hours can be attributed to the correct activity."},400);
         if(!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return json({error:"Work date must use YYYY-MM-DD format."},400);
         if(!Number.isFinite(hours)||hours<=0||hours>24) return json({error:"Hours must be greater than 0 and no more than 24."},400);
         const id=crypto.randomUUID();
