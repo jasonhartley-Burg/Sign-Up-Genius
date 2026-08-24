@@ -59,7 +59,7 @@ async function runSignup(env:Env) {
   try {
     const r = await sync(env);
     await env.DB.prepare("INSERT INTO sync_log(sync_time,records,status,message) VALUES(?,?,?,?)")
-      .bind(t,r.rows,"success",`Synced ${r.events} events, ${r.rows} report rows, ${r.filledQty} filled assignments, ${r.openQty} open assignments, ${r.tbdQty} time-TBD assignments.`).run();
+      .bind(t,r.rows,"success",`Synced ${r.events} events, ${r.rows} report rows, ${r.filledQty} filled assignments, ${r.openQty} open assignments, ${r.tbdQty} time-TBD assignments. D1 changes: ${r.inserted} inserted, ${r.updated} updated, ${r.deleted} deleted, ${r.unchanged} unchanged; ${r.eventsChanged} event rows changed.`).run();
     return r;
   } catch(e) {
     const m=e instanceof Error?e.message:String(e);
@@ -79,7 +79,7 @@ export default {
     const u=new URL(req.url);
     try {
       await ensureSchema(env);
-      if(u.pathname==="/api/health") return json({ok:true,version:"0.5.0",contactsSource:"embedded-normalized-roster",contactSyncMode:"d1-batch",dateFiltering:true,manualOverrides:true,effectiveDatedAffiliations:true,visualizations:true,scoreboard:true,organizationContribution:true,publicAdminSplit:true,manualHours:true,publicEmails:false,adminConfigured:!!adminSecret(env)});
+      if(u.pathname==="/api/health") return json({ok:true,version:"0.5.2",contactsSource:"embedded-normalized-roster",contactSyncMode:"incremental-d1",dateFiltering:true,manualOverrides:true,effectiveDatedAffiliations:true,visualizations:true,scoreboard:true,organizationContribution:true,publicAdminSplit:true,manualHours:true,publicEmails:false,adminConfigured:!!adminSecret(env)});
       if(u.pathname==="/api/dashboard" || u.pathname==="/api/admin/dashboard") {
         const isAdmin=u.pathname==="/api/admin/dashboard";
         if(isAdmin){const denied=adminRequired(req,env);if(denied)return denied;}
