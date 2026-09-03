@@ -1,5 +1,6 @@
 import type { Env } from "./types";
 import { NORMALIZED_ROSTER } from "./normalizedRoster";
+import { contentHash } from "./signupgenius";
 
 function clean(v: unknown) { return String(v ?? "").trim(); }
 function norm(v: unknown) { return clean(v).toLowerCase(); }
@@ -11,25 +12,43 @@ async function runBatches(env: Env, statements: any[], batchSize = 75) {
   }
 }
 
+/** Hash of the compiled-in roster. Changes only when the Worker is redeployed. */
+let rosterHash: string | null = null;
+function hashRoster() {
+  if (rosterHash) return rosterHash;
+  const parts: string[] = [];
+  for (const r of NORMALIZED_ROSTER) parts.push(`${norm(r.email)}|${norm(r.studentName)}|${norm(r.program)}|${clean(r.parentName)}`);
+  parts.sort();
+  rosterHash = contentHash([NORMALIZED_ROSTER.length, parts.join("\n")]);
+  return rosterHash;
+}
+
 /**
- * Incrementally synchronize D1 mappings from the embedded normalized roster.
+ * Synchronize D1 mappings from the embedded normalized roster.
  *
- * The old implementation deleted the entire contact_mappings table and
- * reinserted all 368 rows every 15 minutes. Because this roster is embedded in
- * the deployed Worker, it normally does not change between deployments.
- *
- * We now compare the embedded roster with D1 and write only actual differences.
+ * The roster is compiled into the Worker bundle, so it cannot change without a
+ * deploy — yet this ran in full on every 15-minute cron, reading the roster table
+ * plus two whole-table aggregates and writing a log row each time. It now compares
+ * a hash of the compiled roster against settings.roster_hash and returns after a
+ * single indexed one-row read when nothing has changed.
  */
-export async function syncContacts(env: Env) {
+export async function syncContacts(env: Env, force = false) {
+  const hash = hashRoster();
+
+  if (!force) {
+    const stored = await env.DB.prepare("SELECT value FROM settings WHERE key='roster_hash'").first<any>();
+    if (stored?.value === hash) {
+      return {
+        skipped: true, reason: "roster unchanged since last sync",
+        rows: 0, rosterRows: NORMALIZED_ROSTER.length, uniqueEmails: 0, multiProgramEmails: 0,
+        sourceCounts: {} as Record<string, number>,
+        inserted: 0, updated: 0, deleted: 0, unchanged: 0, writes: 0, errors: [] as string[]
+      };
+    }
+  }
+
   const seenSource = new Set<string>();
-  const desired = new Map<string, {
-    email: string;
-    parentName: string | null;
-    studentName: string | null;
-    program: string;
-    sourceTab: string;
-    sourceType: string;
-  }>();
+  const desired = new Map<string, { email: string; parentName: string | null; studentName: string | null; program: string; sourceTab: string; sourceType: string }>();
   const sourceCounts: Record<string, number> = {};
 
   for (const row of NORMALIZED_ROSTER) {
@@ -109,21 +128,28 @@ export async function syncContacts(env: Env) {
 
   await runBatches(env, statements);
 
-  const uniqueEmails = await env.DB.prepare("SELECT COUNT(DISTINCT LOWER(email)) n FROM contact_mappings").first<any>();
-  const multi = await env.DB.prepare("SELECT COUNT(*) n FROM (SELECT LOWER(email) e FROM contact_mappings GROUP BY LOWER(email) HAVING COUNT(DISTINCT program)>1)").first<any>();
+  // Two whole-table aggregates folded into one round trip.
+  const totals = await env.DB.prepare(`SELECT
+    (SELECT COUNT(DISTINCT LOWER(email)) FROM contact_mappings) uniqueEmails,
+    (SELECT COUNT(*) FROM (SELECT LOWER(email) e FROM contact_mappings GROUP BY LOWER(email) HAVING COUNT(DISTINCT program)>1)) multi`).first<any>();
 
   const changed = inserted + updated + deleted;
-  await env.DB.prepare("INSERT INTO contact_sync_log(sync_time,records,status,message) VALUES(datetime('now'),?,'success',?)")
-    .bind(desired.size, changed
-      ? `Incremental roster sync: ${inserted} inserted, ${updated} updated, ${deleted} deleted, ${unchanged} unchanged.`
-      : `Incremental roster sync: no mapping changes; ${unchanged} rows unchanged.`)
-    .run();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO contact_sync_log(sync_time,records,status,message) VALUES(datetime('now'),?,'success',?)")
+      .bind(desired.size, changed
+        ? `Roster sync: ${inserted} inserted, ${updated} updated, ${deleted} deleted, ${unchanged} unchanged.`
+        : `Roster sync: no mapping changes; ${unchanged} rows unchanged.`),
+    env.DB.prepare("INSERT INTO settings(key,value,updated_at) VALUES('roster_hash',?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=datetime('now')")
+      .bind(hash)
+  ]);
 
   return {
+    skipped: false,
+    reason: force ? "forced" : "roster changed",
     rows: desired.size,
     rosterRows: NORMALIZED_ROSTER.length,
-    uniqueEmails: Number(uniqueEmails?.n || 0),
-    multiProgramEmails: Number(multi?.n || 0),
+    uniqueEmails: Number(totals?.uniqueEmails || 0),
+    multiProgramEmails: Number(totals?.multi || 0),
     sourceCounts,
     inserted,
     updated,

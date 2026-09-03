@@ -1,11 +1,59 @@
+# Changelog
+
+## v0.6.0 — D1 quota fixes
+
+Read path:
+- Added indexed `start_epoch`, `slot_day` and `source` columns to
+  `volunteer_slots`, backfilled once from `raw_json`. All dashboard `WHERE`
+  clauses now compare indexed columns instead of `json_extract(raw_json, ...)`,
+  which could not use an index and forced a full scan plus a JSON parse of the
+  whole table on every sub-query.
+- Added `LOWER(email)` expression indexes on `volunteer_slots`,
+  `contact_mappings`, `volunteer_program_overrides` and
+  `volunteer_affiliation_history`, plus composite `(status, start_epoch)` and
+  `(source, start_epoch)` indexes.
+- `/api/dashboard` responses are cached in the Workers Cache API for
+  `DASHBOARD_CACHE_SECONDS` (default 600). Cache hits do no D1 work. Admin
+  mutations and the cron purge the cached copy. `/api/admin/dashboard` is never
+  cached.
+- Folded the two sync-log lookups into one query and the three
+  contact/override/history count queries into one.
+- `/api/admin/manual-hours` filters on the indexed `source` column instead of
+  `signupgenius_slot_id LIKE 'manual:%'`.
+- `/api/health` no longer touches the database.
+
+Write path:
+- Sync change-detection now hashes only the fields that are persisted. Volatile
+  fields in the SignUpGenius payload no longer make every row look changed and
+  trigger a full table rewrite each cycle.
+- Stored `raw_json` reduced to `{"startdate":…,"source":…}` on both slots and
+  events — the only keys anything downstream reads.
+- The compare pass selects only the slot id and content hash instead of every
+  stored blob.
+- The compiled-in roster sync is gated on a hash of the roster held in
+  `settings.roster_hash`, so it is skipped entirely unless the roster changed.
+  The "Sync Contacts" button still forces a full run.
+- `sync_log` and `contact_sync_log` are pruned to the most recent 200 rows.
+- Several sequential `.run()` calls converted to `batch()`.
+
+Schema and configuration:
+- Schema bootstrap moved to `worker/schema.ts`, guarded by
+  `settings.schema_version`. It costs one indexed single-row read per isolate
+  instead of ~27 statements on every cold start, and applies its DDL in batches.
+- Added `POST /api/admin/bootstrap` to re-apply schema, indexes and backfill.
+- Cron moved from `*/15 * * * *` (96 runs/day) to `0 * * * *` (24 runs/day).
+- `preview_urls` disabled — preview deployments share the production D1 database
+  and were spending the same daily quota.
+- `observability` enabled.
+
+No API response shapes changed; the frontend in `dist/` is untouched.
+
 ## 0.5.2 - D1 write optimization
 - Replaced full volunteer-slot delete/reinsert syncs with incremental inserts, updates, and stale-row deletes.
 - Replaced full contact-mapping rebuilds with incremental comparison and writes only when mappings change.
 - Event rows now update only when source event data changes.
 - Sync logs now report actual D1 changes versus unchanged rows.
 - Keeps the existing 15-minute schedule while dramatically reducing unnecessary D1 writes.
-
-# Changelog
 
 ## v0.5.1
 - Added defensive date parsing across the public and administrative UI.

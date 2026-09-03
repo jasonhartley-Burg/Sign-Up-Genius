@@ -1,12 +1,46 @@
 {
-  "$schema":"node_modules/wrangler/config-schema.json",
-  "name":"sign-up-genius",
-  "main":"worker/index.ts",
-  "compatibility_date":"2026-08-07",
-  "workers_dev":true,
-  "preview_urls": true,
-  "vars":{"APP_ENV":"production","APP_NAME":"Volunteer Dashboard","SIGNUPGENIUS_API_BASE":"https://api.signupgenius.com/v2/k/","SYNC_INTERVAL_MINUTES":"15"},
-  "assets":{"directory":"./dist","binding":"ASSETS","not_found_handling":"single-page-application"},
-  "d1_databases":[{"binding":"DB","database_name":"volunteer-dashboard","database_id":"9b366ca1-8c0e-48f6-82cf-257023f934be","migrations_dir":"migrations"}],
-  "triggers":{"crons":["*/15 * * * *"]}
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sign-up-genius",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-07",
+  "workers_dev": true,
+
+  // Preview deployments bind to the SAME production D1 database, so every hit on a
+  // preview URL spends the same daily quota. Left off; turn on only while testing,
+  // and prefer a separate preview database if you do.
+  "preview_urls": false,
+
+  "observability": { "enabled": true },
+
+  "vars": {
+    "APP_ENV": "production",
+    "APP_NAME": "Volunteer Dashboard",
+    "SIGNUPGENIUS_API_BASE": "https://api.signupgenius.com/v2/k/",
+    "SYNC_INTERVAL_MINUTES": "60",
+    // Edge-cache lifetime for /api/dashboard. Raise it to cut reads further;
+    // set to "0" to disable caching entirely.
+    "DASHBOARD_CACHE_SECONDS": "600",
+    // Set this to your live hostname so the cron can purge the cached dashboard.
+    "PUBLIC_ORIGIN": ""
+  },
+
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "volunteer-dashboard",
+      "database_id": "9b366ca1-8c0e-48f6-82cf-257023f934be",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Was every 15 minutes (96 runs/day). Hourly is 24 runs/day and is well inside
+  // how fast SignUpGenius data actually changes. Use "0,30 * * * *" if you want
+  // half-hourly; anything faster will put pressure back on the D1 free tier.
+  "triggers": { "crons": ["0 * * * *"] }
 }

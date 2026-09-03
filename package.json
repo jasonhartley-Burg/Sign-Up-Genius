@@ -1,6 +1,6 @@
 {
   "name": "volunteer-dashboard",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,10 @@
     "build": "echo \"Prebuilt static dashboard in dist/; no build step required\"",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "db:migrate:remote": "wrangler d1 migrations apply volunteer-dashboard --remote"
+    "tail": "wrangler tail",
+    "db:migrate:remote": "wrangler d1 migrations apply volunteer-dashboard --remote",
+    "db:migrate:local": "wrangler d1 migrations apply volunteer-dashboard --local",
+    "db:info": "wrangler d1 info volunteer-dashboard"
   },
   "dependencies": {
     "react": "^19.1.1",
