@@ -4,7 +4,7 @@ import { sync, dayFromEpoch } from "./signupgenius";
 import { syncContacts } from "./contacts";
 import { ensureSchema, forceSchema, SCHEMA_VERSION } from "./schema";
 
-const VERSION = "0.6.0";
+const VERSION = "0.6.2";
 
 const json = (x: unknown, s = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(x), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store", ...headers } });

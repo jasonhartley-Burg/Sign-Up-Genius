@@ -1,4 +1,4 @@
-# Sign-Up-Genius Volunteer Dashboard v0.6.0
+# Sign-Up-Genius Volunteer Dashboard v0.6.2
 
 Cloudflare Worker + D1 volunteer-hours scoreboard for the Miamisburg Band & Guard
 Boosters, synced from SignUpGenius.
@@ -24,7 +24,8 @@ full analysis is in **[D1-USAGE.md](./D1-USAGE.md)**; briefly:
 - Schema bootstrap costs one indexed row read per isolate rather than 27
   statements per cold start.
 - The compiled-in roster sync is skipped unless the roster itself changed.
-- Cron moved from every 15 minutes to hourly; `preview_urls` turned off.
+- Cron moved from every 15 minutes (96 runs/day) to every 3 hours during
+  waking hours (5 runs/day); `preview_urls` turned off.
 
 ## Deploy
 
@@ -52,10 +53,10 @@ hostname so the hourly cron can purge the cached dashboard, then redeploy.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DASHBOARD_CACHE_SECONDS` | `600` | Edge cache lifetime for `/api/dashboard`. `0` disables caching. Raise it to cut D1 reads further. |
+| `DASHBOARD_CACHE_SECONDS` | `1800` | Edge cache lifetime for `/api/dashboard`. `0` disables caching. Raise it to cut D1 reads further. |
 | `PUBLIC_ORIGIN` | `""` | Live origin, so the cron can purge the cached dashboard after a sync. |
 | `SIGNUPGENIUS_API_BASE` | SignUpGenius v2 | API base URL. |
-| `triggers.crons` | `0 * * * *` | Sync cadence. `0,30 * * * *` for half-hourly. |
+| `triggers.crons` | `0 11-23/3 * * *` | Sync cadence: every 3 hours, 7am-7pm Eastern (5 runs/day). See the comments in `wrangler.jsonc` for slower options. |
 
 ## Endpoints
 

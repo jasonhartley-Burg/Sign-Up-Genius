@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.6.2 — sync cadence
+
+- Cron moved to `0 11-23/3 * * *`: every 3 hours between 7am and 7pm Eastern,
+  5 runs/day. Overnight runs dropped entirely. Down from 96 runs/day on the
+  original `*/15` schedule.
+- `DASHBOARD_CACHE_SECONDS` raised from 600 to 1800. With syncs 3 hours apart a
+  30-minute edge cache is never staler than the data behind it, and it cuts
+  uncached dashboard reads by roughly a further 3x.
+- `SYNC_INTERVAL_MINUTES` display value updated to match.
+- No schema change; `SCHEMA_VERSION` stays at 0.6.1.
+
+## v0.6.1 — index write amplification
+
+- D1 bills one row written per index entry touched in addition to the table row,
+  so index count is a direct multiplier on sync cost. Trimmed `volunteer_slots`
+  to `idx_slots_event`, `idx_slots_email_lower` and `idx_slots_status_epoch`
+  plus its implicit UNIQUE index — one fewer than v0.5.2 carried.
+- Schema bootstrap now runs `DROP INDEX IF EXISTS` for indexes nothing queries:
+  `idx_slots_signupgenius_slot_id` (exactly duplicated the UNIQUE constraint's
+  index), `idx_slots_email`, `idx_contact_email`, `idx_override_email` and
+  `idx_affiliation_history_email` (all superseded by `LOWER(email)` equivalents).
+- Documented the one-time backfill write cost and advised deploying just after
+  the `00:00 UTC` daily reset.
+
 ## v0.6.0 — D1 quota fixes
 
 Read path:

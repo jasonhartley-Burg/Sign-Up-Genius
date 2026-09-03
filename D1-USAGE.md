@@ -1,8 +1,17 @@
-# Why the D1 daily limit was being hit, and what changed in v0.6.0
+# Why the D1 daily limit was being hit, and what changed in v0.6.x
 
 D1's free tier allows roughly **5,000,000 rows read** and **100,000 rows written**
-per day. Five separate things in v0.5.2 were spending that budget, in rough order
-of impact.
+per day.
+
+Cloudflare's alert identifies the limit being hit as **`rows_written`** — 86% of
+100,000 in a day. So sections 3 and 6 below are the ones doing the damage; the
+read-path work in sections 1 and 2 is real but is headroom, not the fix.
+
+**A detail that matters for writes:** D1 bills one row written for the table row
+*plus one for every index entry the write touches*. A table with four indexes
+costs roughly five writes per changed row. Index count is therefore a direct
+multiplier on the sync's cost, which is why v0.6.1 trims `volunteer_slots` back
+to three indexes plus its implicit UNIQUE index — one fewer than v0.5.2 carried.
 
 ---
 
@@ -83,10 +92,29 @@ indexed single-row read. The "Sync Contacts" button still forces a full run.
 
 ---
 
+## 6. Index write amplification
+
+`volunteer_slots` carried `idx_slots_event`, `idx_slots_email`,
+`idx_slots_signupgenius_slot_id` and the implicit UNIQUE index on
+`signupgenius_slot_id` — so every rewritten row cost about five writes, not one.
+Two of those indexes were dead weight: `idx_slots_signupgenius_slot_id`
+duplicated the UNIQUE constraint's own index exactly, and `idx_slots_email` was
+never used because every query lowercases the address.
+
+**Fixed by** dropping the redundant indexes (`DROP INDEX IF EXISTS`, run as part
+of the schema bootstrap) and keeping only `idx_slots_event`,
+`idx_slots_email_lower` and `idx_slots_status_epoch`. Same three equivalents on
+the contact/override/affiliation tables. Net effect: one fewer index on the hot
+write path than before, while the read path gets better coverage.
+
+---
+
 ## Smaller changes
 
-- **Cron cadence** `*/15` → `0 * * * *` (96 → 24 runs/day). `0,30 * * * *` is a
-  reasonable middle ground if hourly feels too slow.
+- **Cron cadence** `*/15` → `0 11-23/3 * * *` (96 → 5 runs/day): every 3 hours
+  between 7am and 7pm Eastern, with overnight runs dropped. This is a ~19x
+  reduction in scheduled work on its own, and it compounds with the change
+  detection in section 3 — fewer runs, and each run writing far less.
 - **`preview_urls` turned off.** Preview deployments bind to the *same*
   production D1 database, so traffic to a preview URL spent the same daily quota.
 - **`sync_log` / `contact_sync_log` are pruned** to the most recent 200 rows,
@@ -117,19 +145,47 @@ npx wrangler d1 insights volunteer-dashboard --timePeriod=7d --sort-by=writes
 That ranks actual queries by cost, so if something still stands out you will see
 which statement it is.
 
-## One-time cost on first deploy
+## One-time cost on first deploy — deploy after the daily reset
 
-The backfill updates every existing slot row once, and the first sync afterwards
-rewrites each row once to populate `content_hash`. For a few thousand slots that
-is a few thousand writes — well within the daily allowance, and it happens only
-once. Subsequent syncs settle to writing only genuine changes.
+The backfill updates every existing slot row (`start_epoch`, `slot_day`,
+`source`), and the first sync afterwards rewrites each row once more to populate
+`content_hash`. Counting index entries, that is roughly **3-4 writes per slot,
+once**.
+
+If the account is already at 86% of its daily writes, that one-time cost can push
+it over. **Deploy just after `00:00 UTC`, when the counter resets** (8:00 PM
+Eastern during daylight time), so the migration lands on a fresh daily budget.
+
+If you would rather not wait, deploy in two steps:
+
+1. Set `"triggers": { "crons": [] }` in `wrangler.jsonc` and deploy. That stops
+   the write source immediately while leaving the dashboard live.
+2. After the next reset, restore the cron and deploy again.
+
+Subsequent syncs settle to writing only genuine changes.
 
 ## If you are still near the limit
 
 In order of effectiveness:
 
+For writes, in order of effectiveness:
+
+1. Slow the cron further — `0 12,21 * * *` is twice a day and still fine for a
+   scoreboard. The admin "Sync All" button covers the case where you need fresh
+   numbers right before an event.
+2. Check `wrangler d1 insights ... --sort-by=writes`. If `volunteer_slots`
+   updates are still high after this release, SignUpGenius is genuinely changing
+   those fields — inspect a sync log message, which reports inserted / updated /
+   deleted / unchanged counts, to see how many rows really move per run.
+3. Resist adding indexes to `volunteer_slots`. Each one is a permanent tax on
+   every sync.
+
+For reads:
+
 1. Raise `DASHBOARD_CACHE_SECONDS` (1800 is fine for a scoreboard).
-2. Move the cron to `0 */2 * * *` or a business-hours window such as
-   `0 7-22 * * *`.
-3. Delete slot rows older than the current season — the dashboard defaults to
+2. Delete slot rows older than the current season — the dashboard defaults to
    all dates, so old rows are scanned on every uncached query.
+
+The Workers Paid plan at $5/month raises this to 50 million writes and 25 billion
+reads per month, which for this workload is effectively unlimited. Worth weighing
+against further tuning if the free tier stays tight.

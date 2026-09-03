@@ -10,7 +10,7 @@ import type { Env } from "./types";
  * Now a single indexed one-row lookup of settings.schema_version decides whether
  * any work is needed. Bump SCHEMA_VERSION whenever the statements below change.
  */
-export const SCHEMA_VERSION = "0.6.0";
+export const SCHEMA_VERSION = "0.6.1";
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT(datetime('now')))`,
@@ -40,25 +40,47 @@ const COLUMNS: Array<[string, string]> = [
   ["volunteer_slots", "ALTER TABLE volunteer_slots ADD COLUMN content_hash TEXT"]
 ];
 
+/**
+ * D1 bills rows_written per row PLUS one per index entry touched. Every extra
+ * index on volunteer_slots therefore multiplies the cost of the sync, which is
+ * the hot write path. This list is deliberately minimal: three indexes plus the
+ * implicit UNIQUE index on signupgenius_slot_id, which is one fewer than the
+ * previous build carried.
+ *
+ * The wide, rarely-written tables (contacts, overrides, affiliations) can afford
+ * more, since the roster sync is now hash-gated and barely writes at all.
+ */
 const INDEXES = [
+  // volunteer_slots — hot write path, keep tight.
   `CREATE INDEX IF NOT EXISTS idx_slots_event ON volunteer_slots(event_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_slots_email ON volunteer_slots(volunteer_email)`,
-  `CREATE INDEX IF NOT EXISTS idx_slots_signupgenius_slot_id ON volunteer_slots(signupgenius_slot_id)`,
   `CREATE INDEX IF NOT EXISTS idx_slots_email_lower ON volunteer_slots(LOWER(volunteer_email))`,
   `CREATE INDEX IF NOT EXISTS idx_slots_status_epoch ON volunteer_slots(status,start_epoch)`,
-  `CREATE INDEX IF NOT EXISTS idx_slots_source_epoch ON volunteer_slots(source,start_epoch)`,
-  `CREATE INDEX IF NOT EXISTS idx_slots_event_slotid ON volunteer_slots(event_id,signupgenius_slot_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_contact_email ON contact_mappings(email)`,
+
   `CREATE INDEX IF NOT EXISTS idx_contact_program ON contact_mappings(program)`,
   `CREATE INDEX IF NOT EXISTS idx_contact_email_lower ON contact_mappings(LOWER(email))`,
   `CREATE INDEX IF NOT EXISTS idx_contact_source_type ON contact_mappings(source_type)`,
-  `CREATE INDEX IF NOT EXISTS idx_override_email ON volunteer_program_overrides(email)`,
   `CREATE INDEX IF NOT EXISTS idx_override_email_lower ON volunteer_program_overrides(LOWER(email))`,
   `CREATE INDEX IF NOT EXISTS idx_override_program ON volunteer_program_overrides(program)`,
-  `CREATE INDEX IF NOT EXISTS idx_affiliation_history_email ON volunteer_affiliation_history(email)`,
   `CREATE INDEX IF NOT EXISTS idx_affiliation_history_email_lower ON volunteer_affiliation_history(LOWER(email))`,
   `CREATE INDEX IF NOT EXISTS idx_affiliation_history_dates ON volunteer_affiliation_history(email,effective_from,effective_to)`,
   `CREATE INDEX IF NOT EXISTS idx_affiliation_history_program ON volunteer_affiliation_history(program)`
+];
+
+/**
+ * Indexes carried by earlier versions that nothing queries any more. Each one was
+ * adding a write to every slot insert and update for no read benefit:
+ *  - idx_slots_email          superseded by the LOWER(email) index; every query lowercases.
+ *  - idx_slots_signupgenius_slot_id  fully redundant with the UNIQUE constraint's own index.
+ *  - idx_contact_email        superseded by idx_contact_email_lower.
+ *  - idx_override_email       superseded by idx_override_email_lower.
+ *  - idx_affiliation_history_email   superseded by idx_affiliation_history_email_lower.
+ */
+const DROP_INDEXES = [
+  `DROP INDEX IF EXISTS idx_slots_email`,
+  `DROP INDEX IF EXISTS idx_slots_signupgenius_slot_id`,
+  `DROP INDEX IF EXISTS idx_contact_email`,
+  `DROP INDEX IF EXISTS idx_override_email`,
+  `DROP INDEX IF EXISTS idx_affiliation_history_email`
 ];
 
 const SEEDS = [
@@ -100,6 +122,7 @@ async function bootstrap(env: Env) {
     }
   }
 
+  await env.DB.batch(DROP_INDEXES.map(sql => env.DB.prepare(sql)));
   await env.DB.batch(INDEXES.map(sql => env.DB.prepare(sql)));
   await env.DB.batch(SEEDS.map(sql => env.DB.prepare(sql)));
   for (const sql of BACKFILL) await env.DB.prepare(sql).run();
