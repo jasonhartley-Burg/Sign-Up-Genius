@@ -28,15 +28,15 @@ function slotRange(alias: string, range: DashboardRange) {
 function stmt(env: Env, sql: string, binds: any[]) { const q = env.DB.prepare(sql); return binds.length ? q.bind(...binds) : q; }
 
 const CURRENT_CTE = `
-  override_emails AS (SELECT DISTINCT LOWER(email) email FROM volunteer_program_overrides),
-  current_cm AS (
+  override_emails AS MATERIALIZED (SELECT DISTINCT LOWER(email) email FROM volunteer_program_overrides),
+  current_cm AS MATERIALIZED (
     SELECT LOWER(email) email, program, 'manual' source FROM volunteer_program_overrides
     UNION ALL
     SELECT LOWER(c.email) email, c.program, 'roster' source FROM contact_mappings c
     WHERE LOWER(c.email) NOT IN (SELECT email FROM override_emails)
   ),
-  history_emails AS (SELECT DISTINCT LOWER(email) email FROM volunteer_affiliation_history),
-  affiliation_rows AS (
+  history_emails AS MATERIALIZED (SELECT DISTINCT LOWER(email) email FROM volunteer_affiliation_history),
+  affiliation_rows AS MATERIALIZED (
     SELECT LOWER(email) email, program, effective_from, effective_to, 'history' source FROM volunteer_affiliation_history
     UNION ALL
     SELECT c.email,c.program,NULL effective_from,NULL effective_to,c.source FROM current_cm c
@@ -82,25 +82,25 @@ export async function dashboard(env: Env, range: DashboardRange = {}) {
 
   const volunteers = await stmt(env, `
     WITH ${CURRENT_CTE},
-    slot_base AS (
+    slot_base AS MATERIALIZED (
       SELECT v.id,v.volunteer_name,v.volunteer_email,v.hours,v.quantity,v.hours_known,
              LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day
       FROM volunteer_slots v WHERE v.status='filled'${rf.sql}
     ),
-    slot_programs AS (
+    slot_programs AS MATERIALIZED (
       SELECT sb.id slot_id,sb.email_key,a.program
       FROM slot_base sb JOIN affiliation_rows a ON a.email=sb.email_key
       WHERE (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to)
       GROUP BY sb.id,a.program
     ),
-    slot_counts AS (SELECT slot_id,COUNT(*) pc FROM slot_programs GROUP BY slot_id),
-    alloc AS (
+    slot_counts AS MATERIALIZED (SELECT slot_id,COUNT(*) pc FROM slot_programs GROUP BY slot_id),
+    alloc AS MATERIALIZED (
       SELECT sb.email_key,sp.program,
         SUM(CASE WHEN sb.hours_known=1 THEN sb.hours*sb.quantity*1.0/sc.pc ELSE 0 END) credited_hours
       FROM slot_base sb JOIN slot_programs sp ON sp.slot_id=sb.id JOIN slot_counts sc ON sc.slot_id=sb.id
       GROUP BY sb.email_key,sp.program
     ),
-    alloc_roll AS (
+    alloc_roll AS MATERIALIZED (
       SELECT email_key,GROUP_CONCAT(program) programs,COUNT(*) program_count,
         GROUP_CONCAT(program||'|'||printf('%.6f',credited_hours),';;') allocation
       FROM alloc GROUP BY email_key
@@ -118,18 +118,18 @@ export async function dashboard(env: Env, range: DashboardRange = {}) {
 
   const programs = await stmt(env, `
     WITH ${CURRENT_CTE},
-    slot_base AS (
+    slot_base AS MATERIALIZED (
       SELECT v.id,v.hours,v.quantity,v.hours_known,LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day
       FROM volunteer_slots v WHERE v.status='filled' AND v.volunteer_email IS NOT NULL${rf.sql}
     ),
-    slot_programs AS (
+    slot_programs AS MATERIALIZED (
       SELECT sb.id slot_id,sb.email_key,a.program
       FROM slot_base sb JOIN affiliation_rows a ON a.email=sb.email_key
       WHERE (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to)
       GROUP BY sb.id,a.program
     ),
-    slot_counts AS (SELECT slot_id,COUNT(*) pc FROM slot_programs GROUP BY slot_id),
-    allocated AS (
+    slot_counts AS MATERIALIZED (SELECT slot_id,COUNT(*) pc FROM slot_programs GROUP BY slot_id),
+    allocated AS MATERIALIZED (
       SELECT sp.program,sb.email_key,
         SUM(CASE WHEN sb.hours_known=1 THEN sb.hours*sb.quantity*1.0/sc.pc ELSE 0 END) known_hours,
         SUM(CASE WHEN sb.hours_known=0 THEN sb.quantity*1.0/sc.pc ELSE 0 END) tbd_assignments,
@@ -137,20 +137,20 @@ export async function dashboard(env: Env, range: DashboardRange = {}) {
       FROM slot_base sb JOIN slot_programs sp ON sp.slot_id=sb.id JOIN slot_counts sc ON sc.slot_id=sb.id
       GROUP BY sp.program,sb.email_key
     ),
-    asof_links AS (
+    asof_links AS MATERIALIZED (
       SELECT a.email,a.program FROM affiliation_rows a
       WHERE (a.effective_from IS NULL OR a.effective_from<=?) AND (a.effective_to IS NULL OR a.effective_to>=?)
       GROUP BY a.email,a.program
     ),
-    asof_counts AS (SELECT email,COUNT(*) pc FROM asof_links GROUP BY email),
-    eligible AS (SELECT l.program,SUM(1.0/c.pc) eligible_credits FROM asof_links l JOIN asof_counts c ON c.email=l.email GROUP BY l.program),
-    participants AS (
+    asof_counts AS MATERIALIZED (SELECT email,COUNT(*) pc FROM asof_links GROUP BY email),
+    eligible AS MATERIALIZED (SELECT l.program,SUM(1.0/c.pc) eligible_credits FROM asof_links l JOIN asof_counts c ON c.email=l.email GROUP BY l.program),
+    participants AS MATERIALIZED (
       SELECT l.program,SUM(CASE WHEN x.email_key IS NOT NULL THEN 1.0/c.pc ELSE 0 END) participating_credits
       FROM asof_links l JOIN asof_counts c ON c.email=l.email
       LEFT JOIN (SELECT DISTINCT email_key,program FROM allocated) x ON x.email_key=l.email AND x.program=l.program
       GROUP BY l.program
     ),
-    names AS (SELECT DISTINCT program FROM affiliation_rows)
+    names AS MATERIALIZED (SELECT DISTINCT program FROM affiliation_rows)
     SELECT n.program name,
       COALESCE((SELECT COUNT(DISTINCT a.email_key) FROM allocated a WHERE a.program=n.program),0) volunteers,
       COALESCE((SELECT SUM(a.volunteer_credit) FROM allocated a WHERE a.program=n.program),0) volunteerCredits,
@@ -163,8 +163,8 @@ export async function dashboard(env: Env, range: DashboardRange = {}) {
 
   const match = await stmt(env, `
     WITH ${CURRENT_CTE},
-    slot_base AS (SELECT v.id,LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day FROM volunteer_slots v WHERE v.status='filled' AND v.volunteer_email IS NOT NULL${rf.sql}),
-    matches AS (SELECT sb.email_key,COUNT(DISTINCT a.program) pc FROM slot_base sb LEFT JOIN affiliation_rows a ON a.email=sb.email_key AND (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to) GROUP BY sb.email_key)
+    slot_base AS MATERIALIZED (SELECT v.id,LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day FROM volunteer_slots v WHERE v.status='filled' AND v.volunteer_email IS NOT NULL${rf.sql}),
+    matches AS MATERIALIZED (SELECT sb.email_key,COUNT(DISTINCT a.program) pc FROM slot_base sb LEFT JOIN affiliation_rows a ON a.email=sb.email_key AND (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to) GROUP BY sb.email_key)
     SELECT COUNT(*) total,COALESCE(SUM(CASE WHEN pc>=1 THEN 1 ELSE 0 END),0) matched,COALESCE(SUM(CASE WHEN pc>1 THEN 1 ELSE 0 END),0) ambiguous,COALESCE(SUM(CASE WHEN pc=0 THEN 1 ELSE 0 END),0) unmatched FROM matches`, rf.binds).first<any>();
 
   // Six small aggregates that used to be three separate round trips.
@@ -178,8 +178,8 @@ export async function dashboard(env: Env, range: DashboardRange = {}) {
 
   const unmatched = await stmt(env, `
     WITH ${CURRENT_CTE},
-    slot_base AS (SELECT v.id,v.volunteer_name,v.volunteer_email,v.hours,v.quantity,v.hours_known,LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day FROM volunteer_slots v WHERE v.status='filled'${rf.sql}),
-    has_program AS (SELECT DISTINCT sb.id FROM slot_base sb JOIN affiliation_rows a ON a.email=sb.email_key WHERE (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to))
+    slot_base AS MATERIALIZED (SELECT v.id,v.volunteer_name,v.volunteer_email,v.hours,v.quantity,v.hours_known,LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day FROM volunteer_slots v WHERE v.status='filled'${rf.sql}),
+    has_program AS MATERIALIZED (SELECT DISTINCT sb.id FROM slot_base sb JOIN affiliation_rows a ON a.email=sb.email_key WHERE (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to))
     SELECT COALESCE(NULLIF(MAX(sb.volunteer_name),''),MAX(sb.volunteer_email),'Unknown') name,MAX(sb.volunteer_email) email,SUM(CASE WHEN sb.hours_known=1 THEN sb.hours*sb.quantity ELSE 0 END) knownHours,SUM(CASE WHEN sb.hours_known=0 THEN sb.quantity ELSE 0 END) tbdAssignments
     FROM slot_base sb WHERE sb.id NOT IN (SELECT id FROM has_program)
     GROUP BY sb.email_key ORDER BY knownHours DESC,name LIMIT 100`, rf.binds).all<any>();
