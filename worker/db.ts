@@ -16,7 +16,6 @@ export async function getSettings(env: Env) {
  * load. That was the single largest consumer of the D1 rows-read budget.
  */
 const EPOCH = (alias: string) => `${alias}.start_epoch`;
-const DAY = (alias: string) => `${alias}.slot_day`;
 
 function slotRange(alias: string, range: DashboardRange) {
   const parts: string[] = []; const binds: number[] = [];
@@ -26,22 +25,6 @@ function slotRange(alias: string, range: DashboardRange) {
 }
 
 function stmt(env: Env, sql: string, binds: any[]) { const q = env.DB.prepare(sql); return binds.length ? q.bind(...binds) : q; }
-
-const CURRENT_CTE = `
-  override_emails AS MATERIALIZED (SELECT DISTINCT LOWER(email) email FROM volunteer_program_overrides),
-  current_cm AS MATERIALIZED (
-    SELECT LOWER(email) email, program, 'manual' source FROM volunteer_program_overrides
-    UNION ALL
-    SELECT LOWER(c.email) email, c.program, 'roster' source FROM contact_mappings c
-    WHERE LOWER(c.email) NOT IN (SELECT email FROM override_emails)
-  ),
-  history_emails AS MATERIALIZED (SELECT DISTINCT LOWER(email) email FROM volunteer_affiliation_history),
-  affiliation_rows AS MATERIALIZED (
-    SELECT LOWER(email) email, program, effective_from, effective_to, 'history' source FROM volunteer_affiliation_history
-    UNION ALL
-    SELECT c.email,c.program,NULL effective_from,NULL effective_to,c.source FROM current_cm c
-    WHERE c.email NOT IN (SELECT email FROM history_emails)
-  )`;
 
 export async function dashboard(env: Env, range: DashboardRange = {}) {
   const cfg = await getSettings(env), est = cfg.estimateUntimedEnabled ? cfg.estimateUntimedHours : 0;
@@ -80,92 +63,108 @@ export async function dashboard(env: Env, range: DashboardRange = {}) {
     (SELECT sync_time FROM contact_sync_log ORDER BY id DESC LIMIT 1) contactSyncTime,
     (SELECT status FROM contact_sync_log ORDER BY id DESC LIMIT 1) contactSyncStatus`).first<any>();
 
-  const volunteers = await stmt(env, `
-    WITH ${CURRENT_CTE},
-    slot_base AS MATERIALIZED (
-      SELECT v.id,v.volunteer_name,v.volunteer_email,v.hours,v.quantity,v.hours_known,
-             LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day
-      FROM volunteer_slots v WHERE v.status='filled'${rf.sql}
-    ),
-    slot_programs AS MATERIALIZED (
-      SELECT sb.id slot_id,sb.email_key,a.program
-      FROM slot_base sb JOIN affiliation_rows a ON a.email=sb.email_key
-      WHERE (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to)
-      GROUP BY sb.id,a.program
-    ),
-    slot_counts AS MATERIALIZED (SELECT slot_id,COUNT(*) pc FROM slot_programs GROUP BY slot_id),
-    alloc AS MATERIALIZED (
-      SELECT sb.email_key,sp.program,
-        SUM(CASE WHEN sb.hours_known=1 THEN sb.hours*sb.quantity*1.0/sc.pc ELSE 0 END) credited_hours
-      FROM slot_base sb JOIN slot_programs sp ON sp.slot_id=sb.id JOIN slot_counts sc ON sc.slot_id=sb.id
-      GROUP BY sb.email_key,sp.program
-    ),
-    alloc_roll AS MATERIALIZED (
-      SELECT email_key,GROUP_CONCAT(program) programs,COUNT(*) program_count,
-        GROUP_CONCAT(program||'|'||printf('%.6f',credited_hours),';;') allocation
-      FROM alloc GROUP BY email_key
-    )
-    SELECT COALESCE(NULLIF(MAX(sb.volunteer_name),''),MAX(sb.volunteer_email),'Unknown') name,MAX(sb.volunteer_email) email,
-      COALESCE(SUM(CASE WHEN sb.hours_known=1 THEN sb.hours*sb.quantity ELSE 0 END),0) knownHours,
-      COALESCE(SUM(CASE WHEN sb.hours_known=0 THEN sb.quantity ELSE 0 END),0) tbdAssignments,
-      COALESCE(SUM(sb.quantity),0) assignments,
-      COALESCE(ar.programs,'Unmatched') attribution,COALESCE(ar.program_count,0) programCount,
-      COALESCE(ar.allocation,'') allocation,
-      CASE WHEN EXISTS(SELECT 1 FROM volunteer_program_overrides o WHERE LOWER(o.email)=sb.email_key) THEN 1 ELSE 0 END manualOverride,
-      CASE WHEN EXISTS(SELECT 1 FROM history_emails h WHERE h.email=sb.email_key) THEN 1 ELSE 0 END datedAffiliation
-    FROM slot_base sb LEFT JOIN alloc_roll ar ON ar.email_key=sb.email_key
-    GROUP BY sb.email_key ORDER BY knownHours DESC,name LIMIT 250`, rf.binds).all<any>();
-
-  const programs = await stmt(env, `
-    WITH ${CURRENT_CTE},
-    slot_base AS MATERIALIZED (
-      SELECT v.id,v.hours,v.quantity,v.hours_known,LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day
-      FROM volunteer_slots v WHERE v.status='filled' AND v.volunteer_email IS NOT NULL${rf.sql}
-    ),
-    slot_programs AS MATERIALIZED (
-      SELECT sb.id slot_id,sb.email_key,a.program
-      FROM slot_base sb JOIN affiliation_rows a ON a.email=sb.email_key
-      WHERE (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to)
-      GROUP BY sb.id,a.program
-    ),
-    slot_counts AS MATERIALIZED (SELECT slot_id,COUNT(*) pc FROM slot_programs GROUP BY slot_id),
-    allocated AS MATERIALIZED (
-      SELECT sp.program,sb.email_key,
-        SUM(CASE WHEN sb.hours_known=1 THEN sb.hours*sb.quantity*1.0/sc.pc ELSE 0 END) known_hours,
-        SUM(CASE WHEN sb.hours_known=0 THEN sb.quantity*1.0/sc.pc ELSE 0 END) tbd_assignments,
-        MAX(1.0/sc.pc) volunteer_credit
-      FROM slot_base sb JOIN slot_programs sp ON sp.slot_id=sb.id JOIN slot_counts sc ON sc.slot_id=sb.id
-      GROUP BY sp.program,sb.email_key
-    ),
-    asof_links AS MATERIALIZED (
-      SELECT a.email,a.program FROM affiliation_rows a
-      WHERE (a.effective_from IS NULL OR a.effective_from<=?) AND (a.effective_to IS NULL OR a.effective_to>=?)
-      GROUP BY a.email,a.program
-    ),
-    asof_counts AS MATERIALIZED (SELECT email,COUNT(*) pc FROM asof_links GROUP BY email),
-    eligible AS MATERIALIZED (SELECT l.program,SUM(1.0/c.pc) eligible_credits FROM asof_links l JOIN asof_counts c ON c.email=l.email GROUP BY l.program),
-    participants AS MATERIALIZED (
-      SELECT l.program,SUM(CASE WHEN x.email_key IS NOT NULL THEN 1.0/c.pc ELSE 0 END) participating_credits
-      FROM asof_links l JOIN asof_counts c ON c.email=l.email
-      LEFT JOIN (SELECT DISTINCT email_key,program FROM allocated) x ON x.email_key=l.email AND x.program=l.program
-      GROUP BY l.program
-    ),
-    names AS MATERIALIZED (SELECT DISTINCT program FROM affiliation_rows)
-    SELECT n.program name,
-      COALESCE((SELECT COUNT(DISTINCT a.email_key) FROM allocated a WHERE a.program=n.program),0) volunteers,
-      COALESCE((SELECT SUM(a.volunteer_credit) FROM allocated a WHERE a.program=n.program),0) volunteerCredits,
-      COALESCE((SELECT SUM(a.known_hours) FROM allocated a WHERE a.program=n.program),0) knownHours,
-      COALESCE((SELECT SUM(a.tbd_assignments) FROM allocated a WHERE a.program=n.program),0) tbdAssignments,
-      COALESCE(el.eligible_credits,0) eligibleCredits,COALESCE(pa.participating_credits,0) participatingCredits,
-      CASE WHEN COALESCE(el.eligible_credits,0)>0 THEN COALESCE(pa.participating_credits,0)*100.0/el.eligible_credits ELSE 0 END participationRate
-    FROM names n LEFT JOIN eligible el ON el.program=n.program LEFT JOIN participants pa ON pa.program=n.program
-    ORDER BY knownHours DESC,name`, [...rf.binds, asOf, asOf]).all<any>();
-
-  const match = await stmt(env, `
-    WITH ${CURRENT_CTE},
-    slot_base AS MATERIALIZED (SELECT v.id,LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day FROM volunteer_slots v WHERE v.status='filled' AND v.volunteer_email IS NOT NULL${rf.sql}),
-    matches AS MATERIALIZED (SELECT sb.email_key,COUNT(DISTINCT a.program) pc FROM slot_base sb LEFT JOIN affiliation_rows a ON a.email=sb.email_key AND (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to) GROUP BY sb.email_key)
-    SELECT COUNT(*) total,COALESCE(SUM(CASE WHEN pc>=1 THEN 1 ELSE 0 END),0) matched,COALESCE(SUM(CASE WHEN pc>1 THEN 1 ELSE 0 END),0) ambiguous,COALESCE(SUM(CASE WHEN pc=0 THEN 1 ELSE 0 END),0) unmatched FROM matches`, rf.binds).first<any>();
+  // Resolve affiliations and allocations in application code. This avoids SQLite's
+  // parser limit on nested views/CTEs while preserving historical and override rules.
+  const [overrideResult, mappingResult, historyResult] = await Promise.all([
+    env.DB.prepare("SELECT LOWER(email) email,program FROM volunteer_program_overrides").all<any>(),
+    env.DB.prepare("SELECT LOWER(email) email,program FROM contact_mappings").all<any>(),
+    env.DB.prepare("SELECT LOWER(email) email,program,effective_from,effective_to FROM volunteer_affiliation_history").all<any>()
+  ]);
+  const overrides = overrideResult.results || [], mappings = mappingResult.results || [], history = historyResult.results || [];
+  const overrideEmails = new Set(overrides.map(x => x.email));
+  const historyEmails = new Set(history.map(x => x.email));
+  const affiliations = [
+    ...history,
+    ...overrides.filter(x => !historyEmails.has(x.email)).map(x => ({ ...x, effective_from: null, effective_to: null })),
+    ...mappings.filter(x => !overrideEmails.has(x.email) && !historyEmails.has(x.email)).map(x => ({ ...x, effective_from: null, effective_to: null }))
+  ];
+  const byEmail = new Map<string, any[]>();
+  for (const row of affiliations) {
+    const list = byEmail.get(row.email) || []; list.push(row); byEmail.set(row.email, list);
+  }
+  // Pagination bounds the size of individual D1 results, including on large rosters.
+  const slots: any[] = [];
+  let lastId = 0;
+  for (;;) {
+    const page = await stmt(env, `SELECT v.id,v.volunteer_name,v.volunteer_email,v.hours,v.quantity,v.hours_known,v.slot_day
+      FROM volunteer_slots v WHERE v.status='filled' AND v.id>?${rf.sql} ORDER BY v.id LIMIT 500`, [lastId, ...rf.binds]).all<any>();
+    const rows = page.results || [];
+    slots.push(...rows);
+    if (rows.length < 500) break;
+    lastId = rows[rows.length - 1].id;
+  }
+  const volunteerMap = new Map<string, any>();
+  const programMap = new Map<string, any>();
+  const allocatedEmails = new Map<string, Set<string>>();
+  const unmatchedMap = new Map<string, any>();
+  const matchedEmails = new Map<string, Set<string>>();
+  const getProgram = (name: string) => {
+    let p = programMap.get(name);
+    if (!p) { p = { name, volunteers: 0, volunteerCredits: 0, knownHours: 0, tbdAssignments: 0, eligibleCredits: 0, participatingCredits: 0, participationRate: 0 }; programMap.set(name, p); }
+    return p;
+  };
+  for (const row of affiliations) if (row.program) getProgram(row.program);
+  for (const slot of slots) {
+    const email = String(slot.volunteer_email || '').toLowerCase();
+    const day = slot.slot_day;
+    const programsForSlot = [...new Set((byEmail.get(email) || [])
+      .filter(a => (a.effective_from == null || day >= a.effective_from) && (a.effective_to == null || day <= a.effective_to))
+      .map(a => a.program))];
+    const known = Number(slot.hours_known) === 1 ? Number(slot.hours || 0) * Number(slot.quantity || 0) : 0;
+    const tbd = Number(slot.hours_known) === 0 ? Number(slot.quantity || 0) : 0;
+    let v = volunteerMap.get(email);
+    if (!v) {
+      v = { name: '', email: '', knownHours: 0, tbdAssignments: 0, assignments: 0, attribution: 'Unmatched', programCount: 0, allocation: '', manualOverride: overrideEmails.has(email) ? 1 : 0, datedAffiliation: historyEmails.has(email) ? 1 : 0, allocations: new Map<string, number>() };
+      volunteerMap.set(email, v);
+    }
+    if (slot.volunteer_name && (!v.name || slot.volunteer_name > v.name)) v.name = slot.volunteer_name;
+    if (slot.volunteer_email && (!v.email || slot.volunteer_email > v.email)) v.email = slot.volunteer_email;
+    v.knownHours += known; v.tbdAssignments += tbd; v.assignments += Number(slot.quantity || 0);
+    if (!matchedEmails.has(email)) matchedEmails.set(email, new Set());
+    for (const program of programsForSlot) matchedEmails.get(email)!.add(program);
+    if (!programsForSlot.length) {
+      let u = unmatchedMap.get(email);
+      if (!u) { u = { name: '', email: '', knownHours: 0, tbdAssignments: 0 }; unmatchedMap.set(email, u); }
+      if (slot.volunteer_name && (!u.name || slot.volunteer_name > u.name)) u.name = slot.volunteer_name;
+      if (slot.volunteer_email && (!u.email || slot.volunteer_email > u.email)) u.email = slot.volunteer_email;
+      u.knownHours += known; u.tbdAssignments += tbd;
+    }
+    for (const program of programsForSlot) {
+      const p = getProgram(program), credit = 1 / programsForSlot.length;
+      p.knownHours += known * credit; p.tbdAssignments += tbd * credit;
+      v.allocations.set(program, (v.allocations.get(program) || 0) + known * credit);
+      const key = `${email}\u0000${program}`;
+      if (!allocatedEmails.has(key)) { allocatedEmails.set(key, new Set([email])); p.volunteers += 1; p.volunteerCredits += credit; }
+      // The legacy SQL uses MAX(1 / per-slot program count) for volunteer credit.
+      const creditKey = `${email}\u0000${program}`;
+      const credits = (p as any)._credits || ((p as any)._credits = new Map<string, number>());
+      credits.set(creditKey, Math.max(credits.get(creditKey) || 0, credit));
+    }
+  }
+  for (const p of programMap.values()) {
+    const credits: Map<string, number> = p._credits || new Map();
+    p.volunteerCredits = [...credits.values()].reduce((a, b) => a + b, 0);
+    delete p._credits;
+  }
+  const eligibleByEmail = new Map<string, Set<string>>();
+  for (const a of affiliations) {
+    if (!a.program || (a.effective_from != null && a.effective_from > asOf) || (a.effective_to != null && a.effective_to < asOf)) continue;
+    const set = eligibleByEmail.get(a.email) || new Set<string>(); set.add(a.program); eligibleByEmail.set(a.email, set);
+  }
+  for (const [email, names] of eligibleByEmail) for (const name of names) {
+    const p = getProgram(name), credit = 1 / names.size;
+    p.eligibleCredits += credit;
+    if (allocatedEmails.has(`${email}\u0000${name}`)) p.participatingCredits += credit;
+  }
+  for (const p of programMap.values()) p.participationRate = p.eligibleCredits ? p.participatingCredits * 100 / p.eligibleCredits : 0;
+  const volunteers = { results: [...volunteerMap.values()].map(v => {
+    const allocations = [...v.allocations.entries()];
+    const { allocations: ignored, ...rest } = v;
+    return { ...rest, name: v.name || v.email || 'Unknown', attribution: allocations.map(x => x[0]).join(',') || 'Unmatched', programCount: allocations.length, allocation: allocations.map(([name, hours]) => `${name}|${hours.toFixed(6)}`).join(';;') };
+  }).sort((a, b) => b.knownHours - a.knownHours || a.name.localeCompare(b.name)).slice(0, 250) };
+  const programs = { results: [...programMap.values()].sort((a, b) => b.knownHours - a.knownHours || a.name.localeCompare(b.name)) };
+  const match = { total: matchedEmails.size, matched: [...matchedEmails.values()].filter(s => s.size >= 1).length, ambiguous: [...matchedEmails.values()].filter(s => s.size > 1).length, unmatched: [...matchedEmails.values()].filter(s => s.size === 0).length };
+  const unmatched = { results: [...unmatchedMap.values()].map(u => ({ ...u, name: u.name || u.email || 'Unknown' })).sort((a, b) => b.knownHours - a.knownHours || a.name.localeCompare(b.name)).slice(0, 100) };
 
   // Six small aggregates that used to be three separate round trips.
   const counts = await env.DB.prepare(`SELECT
@@ -178,8 +177,8 @@ export async function dashboard(env: Env, range: DashboardRange = {}) {
 
   const unmatched = await stmt(env, `
     WITH ${CURRENT_CTE},
-    slot_base AS MATERIALIZED (SELECT v.id,v.volunteer_name,v.volunteer_email,v.hours,v.quantity,v.hours_known,LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day FROM volunteer_slots v WHERE v.status='filled'${rf.sql}),
-    has_program AS MATERIALIZED (SELECT DISTINCT sb.id FROM slot_base sb JOIN affiliation_rows a ON a.email=sb.email_key WHERE (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to))
+    slot_base AS (SELECT v.id,v.volunteer_name,v.volunteer_email,v.hours,v.quantity,v.hours_known,LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day FROM volunteer_slots v WHERE v.status='filled'${rf.sql}),
+    has_program AS (SELECT DISTINCT sb.id FROM slot_base sb JOIN affiliation_rows a ON a.email=sb.email_key WHERE (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to))
     SELECT COALESCE(NULLIF(MAX(sb.volunteer_name),''),MAX(sb.volunteer_email),'Unknown') name,MAX(sb.volunteer_email) email,SUM(CASE WHEN sb.hours_known=1 THEN sb.hours*sb.quantity ELSE 0 END) knownHours,SUM(CASE WHEN sb.hours_known=0 THEN sb.quantity ELSE 0 END) tbdAssignments
     FROM slot_base sb WHERE sb.id NOT IN (SELECT id FROM has_program)
     GROUP BY sb.email_key ORDER BY knownHours DESC,name LIMIT 100`, rf.binds).all<any>();
