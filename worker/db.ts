@@ -175,14 +175,6 @@ export async function dashboard(env: Env, range: DashboardRange = {}) {
     (SELECT COUNT(DISTINCT LOWER(email)) FROM volunteer_affiliation_history) historyEmails,
     (SELECT COUNT(*) FROM volunteer_affiliation_history) historyMappings`).first<any>();
 
-  const unmatched = await stmt(env, `
-    WITH ${CURRENT_CTE},
-    slot_base AS (SELECT v.id,v.volunteer_name,v.volunteer_email,v.hours,v.quantity,v.hours_known,LOWER(v.volunteer_email) email_key,${DAY("v")} slot_day FROM volunteer_slots v WHERE v.status='filled'${rf.sql}),
-    has_program AS (SELECT DISTINCT sb.id FROM slot_base sb JOIN affiliation_rows a ON a.email=sb.email_key WHERE (a.effective_from IS NULL OR sb.slot_day>=a.effective_from) AND (a.effective_to IS NULL OR sb.slot_day<=a.effective_to))
-    SELECT COALESCE(NULLIF(MAX(sb.volunteer_name),''),MAX(sb.volunteer_email),'Unknown') name,MAX(sb.volunteer_email) email,SUM(CASE WHEN sb.hours_known=1 THEN sb.hours*sb.quantity ELSE 0 END) knownHours,SUM(CASE WHEN sb.hours_known=0 THEN sb.quantity ELSE 0 END) tbdAssignments
-    FROM slot_base sb WHERE sb.id NOT IN (SELECT id FROM has_program)
-    GROUP BY sb.email_key ORDER BY knownHours DESC,name LIMIT 100`, rf.binds).all<any>();
-
   const availablePrograms = await env.DB.prepare("SELECT program name FROM (SELECT DISTINCT program FROM contact_mappings UNION SELECT DISTINCT program FROM volunteer_program_overrides UNION SELECT DISTINCT program FROM volunteer_affiliation_history) WHERE program IS NOT NULL AND TRIM(program)<>'' ORDER BY name").all<any>();
 
   return {
